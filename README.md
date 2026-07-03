@@ -53,19 +53,33 @@ Requirements:
 
 ### Install From Source
 
-If you clone the repository, build the frontend first, then install the Python package:
+If you install the full GUI from source, install Bun, build the frontend, then sync the bundled static files into the Python package:
 
 ```shell
-git clone https://github.com/songfeitong/pretty-lattice.git
-cd pretty-lattice
+# 1. Install Bun; skip this if Bun is already available
+curl -fsSL https://bun.sh/install | bash
+source ~/.bashrc
 
+# 2. Clone the source
+git clone https://github.com/sgyang345/pretty-lattice.git
+cd pretty-lattice
+git checkout vesta_like
+
+# 3. Build the frontend
 cd web
 bun install
 bun run build
 
+# 4. Sync frontend static files and install the Python package
 cd ..
 python scripts/sync_web_static.py
 python -m pip install .
+```
+
+After installation, open a structure file directly:
+
+```shell
+prl STRU.vasp
 ```
 
 ## Quick start

@@ -52,19 +52,33 @@ uv tool install pretty-lattice
 
 ### 从源码安装
 
-如果你从 GitHub 克隆源码安装，先构建前端，再安装 Python 包：
+如果你从 GitHub 克隆源码安装完整 GUI，先安装 Bun 并构建前端，再把构建好的静态文件同步到 Python 包里：
 
 ```shell
-git clone https://github.com/songfeitong/pretty-lattice.git
-cd pretty-lattice
+# 1. 安装 Bun；如果已经安装，可以跳过
+curl -fsSL https://bun.sh/install | bash
+source ~/.bashrc
 
+# 2. 克隆源码
+git clone https://github.com/sgyang345/pretty-lattice.git
+cd pretty-lattice
+git checkout vesta_like
+
+# 3. 构建前端
 cd web
 bun install
 bun run build
 
+# 4. 同步前端静态文件并安装 Python 包
 cd ..
 python scripts/sync_web_static.py
 python -m pip install .
+```
+
+安装完成后，可以直接用 `prl` 打开结构文件：
+
+```shell
+prl STRU.vasp
 ```
 
 ## 快速开始
