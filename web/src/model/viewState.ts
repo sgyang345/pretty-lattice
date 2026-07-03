@@ -1,8 +1,11 @@
+import type { CrystalCameraState } from "./crystalCameraState";
+
 export type InteractionMode = "trackball" | "orbit";
 
 export const MIN_VIEW_SCALE = 0.2;
 export const MAX_VIEW_SCALE = 5;
 export const DEFAULT_VIEW_SCALE = 0.75;
+export const VIEW_SCALE_DISPLAY_NORMALIZATION = DEFAULT_VIEW_SCALE;
 export const BASE_TRACKBALL_DRAG_SENSITIVITY = 2;
 export const BASE_ORBIT_DRAG_SENSITIVITY = 0.5;
 export const MIN_DRAG_SENSITIVITY = 0.5;
@@ -15,7 +18,11 @@ export const MAX_LIGHT_STRENGTH = 2;
 export const DEFAULT_LIGHT_STRENGTH = 1;
 export const LIGHT_STRENGTH_SLIDER_SNAP_POSITION = 0.5;
 export const LIGHT_STRENGTH_SLIDER_SNAP_THRESHOLD = 0.04;
-export const ZOOM_SLIDER_SNAP_POSITION = 0.5;
+export const ZOOM_SLIDER_SNAP_POSITION = logarithmicSliderPosition(
+  DEFAULT_VIEW_SCALE,
+  MIN_VIEW_SCALE,
+  MAX_VIEW_SCALE,
+);
 export const ZOOM_SLIDER_SNAP_THRESHOLD = 0.03;
 
 export const INTERACTION_MODE_OPTIONS: readonly {
@@ -26,9 +33,20 @@ export const INTERACTION_MODE_OPTIONS: readonly {
   { label: "Orbit", value: "orbit" },
 ];
 
+export interface PreviewViewState {
+  camera: CrystalCameraState;
+  dragSensitivity: number;
+  interactionLocked: boolean;
+  interactionMode: InteractionMode;
+  lightStrength: number;
+  resetCounter: number;
+  showFpsOverlay: boolean;
+  viewScale: number;
+}
+
 export function clampViewScale(viewScale: number): number {
   if (!Number.isFinite(viewScale)) {
-    return 1;
+    return DEFAULT_VIEW_SCALE;
   }
 
   return Math.min(MAX_VIEW_SCALE, Math.max(MIN_VIEW_SCALE, viewScale));
@@ -162,7 +180,9 @@ export function parseLightStrengthPercentInput(value: string): number | null {
 }
 
 export function formatZoomPercent(viewScale: number): string {
-  return String(Math.round(clampViewScale(viewScale) * 100));
+  return String(
+    Math.round((clampViewScale(viewScale) / VIEW_SCALE_DISPLAY_NORMALIZATION) * 100),
+  );
 }
 
 export function parseZoomPercentInput(value: string): number | null {
@@ -176,7 +196,7 @@ export function parseZoomPercentInput(value: string): number | null {
     return null;
   }
 
-  return clampViewScale(percent / 100);
+  return clampViewScale((percent / 100) * VIEW_SCALE_DISPLAY_NORMALIZATION);
 }
 
 function logarithmicSliderPosition(value: number, min: number, max: number): number {

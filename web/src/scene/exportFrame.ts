@@ -1,8 +1,19 @@
-import { OrthographicCamera, Quaternion, Vector3 } from "three";
+import { Box3, OrthographicCamera, Quaternion, Vector3 } from "three";
 
 import type { SceneSpec } from "../api/scene";
 import type { StyleState } from "../model/appearance";
 import { atomLabelsForAtoms, type AtomLabelSettings } from "../model/atomLabels";
+import {
+  ATOM_VECTOR_HEAD_SIZE_NORMALIZATION,
+  ATOM_VECTOR_HEAD_WIDTH_RATIO,
+  ATOM_VECTOR_LENGTH_SCALE_NORMALIZATION,
+  ATOM_VECTOR_LINE_THICKNESS_NORMALIZATION,
+  ATOM_VECTOR_MAX_LENGTH_RATIO,
+  ATOM_VECTOR_MIN_LENGTH_RATIO,
+  ATOM_VECTOR_RADIUS_RATIO,
+  atomVectorRenderItems,
+  type AtomVectorSettings,
+} from "../model/atomVectors";
 import type { ComponentOpacityState } from "../model/displayState";
 import type { CameraPoseSnapshot } from "./cameraPose";
 import {
@@ -46,6 +57,7 @@ interface ExportFramePoint {
 
 interface StructureExportGeometryOptions {
   atomLabelSettings?: AtomLabelSettings | null;
+  atomVectors?: AtomVectorSettings | null;
   cameraPose: CameraPoseSnapshot;
   componentOpacity: ComponentOpacityState;
   groupPosition?: VectorTuple;
@@ -143,6 +155,7 @@ export function applyOrthographicExportFrame(
 
 export function computeStructureProjectedBounds({
   atomLabelSettings,
+  atomVectors,
   cameraPose,
   componentOpacity,
   groupPosition,
@@ -222,7 +235,51 @@ export function computeStructureProjectedBounds({
     }
   }
 
+  if (atomVectors?.enabled) {
+    const cellSpan = cellStructureSpan(scene.cell.vectors);
+    const displayLengthScale =
+      atomVectors.lengthScale / ATOM_VECTOR_LENGTH_SCALE_NORMALIZATION;
+    const lengthScale =
+      Math.max(0.4, cellSpan) * ATOM_VECTOR_MAX_LENGTH_RATIO * displayLengthScale;
+    const minLength =
+      Math.max(0.4, cellSpan) * ATOM_VECTOR_MIN_LENGTH_RATIO * displayLengthScale;
+    const lineRadius =
+      Math.max(0.4, cellSpan) *
+      ATOM_VECTOR_RADIUS_RATIO *
+      (atomVectors.lineThickness / ATOM_VECTOR_LINE_THICKNESS_NORMALIZATION);
+    const headSizeScale = atomVectors.headSize / ATOM_VECTOR_HEAD_SIZE_NORMALIZATION;
+    for (const { atom, vector } of atomVectorRenderItems(atomVectors, scene.atoms)) {
+      const direction = new Vector3(...vector);
+      const magnitude = direction.length();
+      if (magnitude <= 0) {
+        continue;
+      }
+
+      direction.normalize();
+      const length = Math.max(minLength, magnitude * lengthScale);
+      const center = new Vector3(...atom.position);
+      const start = center.clone().addScaledVector(direction, -length / 2);
+      const end = center.clone().addScaledVector(direction, length / 2);
+      const headRadius = Math.max(
+        lineRadius * 1.8,
+        length * ATOM_VECTOR_HEAD_WIDTH_RATIO * headSizeScale,
+      );
+
+      bounds.includePoint(projector.projectPoint(start), headRadius);
+      bounds.includePoint(projector.projectPoint(end), headRadius);
+    }
+  }
+
   return bounds.toBounds();
+}
+
+function cellStructureSpan(vectors: VectorTuple[]): number {
+  const box = cellCorners(vectors).reduce(
+    (currentBox, corner) => currentBox.expandByPoint(corner),
+    new Box3(),
+  );
+  const size = box.getSize(new Vector3());
+  return Math.max(1, size.x, size.y, size.z);
 }
 
 function createCameraPlaneProjector(

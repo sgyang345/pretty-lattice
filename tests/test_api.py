@@ -37,6 +37,11 @@ Te
 """
 
 
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
 @pytest.mark.anyio
 async def test_health_endpoint() -> None:
     async with AsyncClient(
@@ -168,6 +173,165 @@ async def test_startup_structure_preview_endpoint_requires_startup_file() -> Non
 
     assert response.status_code == 404
     assert response.json()["detail"]["message"] == "No startup structure file."
+
+
+@pytest.mark.anyio
+async def test_startup_project_endpoint_returns_project_text(tmp_path: Path) -> None:
+    project_path = tmp_path / "scene.prl"
+    project_path.write_text('{"format":"pretty-lattice-project"}\n', encoding="utf-8")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(startup_project_path=project_path)),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.get("/api/startup-project")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "fileName": "scene.prl",
+        "text": '{"format":"pretty-lattice-project"}\n',
+    }
+
+
+@pytest.mark.anyio
+async def test_startup_project_endpoint_requires_startup_file() -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()), base_url="http://testserver"
+    ) as client:
+        response = await client.get("/api/startup-project")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["message"] == "No startup project file."
+
+
+@pytest.mark.anyio
+async def test_startup_project_save_endpoint_writes_next_to_startup_structure(
+    tmp_path: Path,
+) -> None:
+    structure_path = tmp_path / "scene.vasp"
+    structure_path.write_text((FIXTURE_DIR / "SrTiO3.cif").read_text(encoding="utf-8"))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(startup_structure_path=structure_path)),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/api/startup-project",
+            json={"text": '{"format":"pretty-lattice-project"}\n'},
+        )
+
+    project_path = tmp_path / "scene.prl"
+    assert response.status_code == 200
+    assert response.json() == {
+        "fileName": "scene.prl",
+        "path": str(project_path),
+    }
+    assert project_path.read_text(encoding="utf-8") == '{"format":"pretty-lattice-project"}\n'
+
+
+@pytest.mark.anyio
+async def test_startup_project_save_endpoint_reports_existing_file(
+    tmp_path: Path,
+) -> None:
+    structure_path = tmp_path / "scene.vasp"
+    structure_path.write_text((FIXTURE_DIR / "SrTiO3.cif").read_text(encoding="utf-8"))
+    project_path = tmp_path / "scene.prl"
+    project_path.write_text("existing\n", encoding="utf-8")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(startup_structure_path=structure_path)),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/api/startup-project",
+            json={"text": '{"format":"pretty-lattice-project"}\n'},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "fileName": "scene.prl",
+        "message": f"Project file already exists: {project_path}",
+        "path": str(project_path),
+    }
+    assert project_path.read_text(encoding="utf-8") == "existing\n"
+
+
+@pytest.mark.anyio
+async def test_startup_project_save_endpoint_overwrites_existing_file(
+    tmp_path: Path,
+) -> None:
+    structure_path = tmp_path / "scene.vasp"
+    structure_path.write_text((FIXTURE_DIR / "SrTiO3.cif").read_text(encoding="utf-8"))
+    project_path = tmp_path / "scene.prl"
+    project_path.write_text("existing\n", encoding="utf-8")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(startup_structure_path=structure_path)),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/api/startup-project",
+            json={"overwrite": True, "text": '{"format":"pretty-lattice-project"}\n'},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "fileName": "scene.prl",
+        "path": str(project_path),
+    }
+    assert project_path.read_text(encoding="utf-8") == '{"format":"pretty-lattice-project"}\n'
+
+
+@pytest.mark.anyio
+async def test_startup_file_save_endpoint_writes_next_to_startup_structure(
+    tmp_path: Path,
+) -> None:
+    structure_path = tmp_path / "scene.vasp"
+    structure_path.write_text((FIXTURE_DIR / "SrTiO3.cif").read_text(encoding="utf-8"))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(startup_structure_path=structure_path)),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/api/startup-file",
+            json={"fileName": "scene.cif", "text": "data_scene\n"},
+        )
+
+    export_path = tmp_path / "scene.cif"
+    assert response.status_code == 200
+    assert response.json() == {
+        "fileName": "scene.cif",
+        "path": str(export_path),
+    }
+    assert export_path.read_text(encoding="utf-8") == "data_scene\n"
+
+
+@pytest.mark.anyio
+async def test_startup_file_save_endpoint_reports_existing_file(
+    tmp_path: Path,
+) -> None:
+    structure_path = tmp_path / "scene.vasp"
+    structure_path.write_text((FIXTURE_DIR / "SrTiO3.cif").read_text(encoding="utf-8"))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(startup_structure_path=structure_path)),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/api/startup-file",
+            json={"fileName": "scene.vasp", "text": "new poscar\n"},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "fileName": "scene.vasp",
+        "message": f"File already exists: {structure_path}",
+        "path": str(structure_path),
+    }
+    assert structure_path.read_text(encoding="utf-8") == (
+        FIXTURE_DIR / "SrTiO3.cif"
+    ).read_text(encoding="utf-8")
 
 
 @pytest.mark.anyio

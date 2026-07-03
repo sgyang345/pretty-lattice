@@ -5,6 +5,7 @@ import { Quaternion, Vector3 } from "three";
 import type { SceneSpec } from "../api/scene";
 import type {
   AtomLabelSettings,
+  AtomVectorSettings,
   ComponentOpacityState,
   ExportMeshQuality,
   ExportSupersampling,
@@ -70,6 +71,7 @@ export interface RasterExportTextItem {
 
 export interface RenderStructureRasterOptions {
   atomLabelSettings?: AtomLabelSettings | null;
+  atomVectors?: AtomVectorSettings | null;
   backgroundColor: string | null;
   cameraPose: CameraPoseSnapshot;
   componentOpacity: ComponentOpacityState;
@@ -104,6 +106,7 @@ export interface RenderCrystalAxesRasterOptions {
 
 export async function renderStructureRasterImage({
   atomLabelSettings = null,
+  atomVectors = null,
   backgroundColor,
   cameraPose,
   componentOpacity,
@@ -141,6 +144,7 @@ export async function renderStructureRasterImage({
   const materialFamilies = resolveStructureMaterialFamiliesForStyle(style);
   const exportFramePlan = computeStructureExportFramePlan({
     atomLabelSettings,
+    atomVectors,
     cameraPose,
     componentOpacity,
     height: renderHeight,
@@ -192,6 +196,7 @@ export async function renderStructureRasterImage({
         />
         <ExportSceneContent
           atomLabelSettings={atomLabelSettings}
+          atomVectors={atomVectors}
           cameraPose={cameraPose}
           componentOpacity={componentOpacity}
           exportFramePlan={exportFramePlan}

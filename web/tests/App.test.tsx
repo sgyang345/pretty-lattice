@@ -2088,7 +2088,7 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Reset view" }));
 
-    expect((zoomInput as HTMLInputElement).value).toBe("75");
+    expect((zoomInput as HTMLInputElement).value).toBe("100");
     expect(rollInput.value).toBe(standardViewRoll);
   });
 

@@ -1,13 +1,24 @@
-import { AlertTriangleIcon, ChevronDown, ChevronUp, FolderOpen } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import {
+  AlertTriangleIcon,
+  ChevronDown,
+  ChevronUp,
+  FileDown,
+  FolderOpen,
+} from "lucide-react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import type { SceneSpec } from "../../api/scene";
+import {
+  STRUCTURE_TEXT_EXPORT_FORMATS,
+  type StructureTextExportFormat,
+} from "../../export/structureTextExport";
 import {
   CellMetric,
   SummaryRow,
@@ -26,6 +37,8 @@ export function StructureSummaryCard({
   isCollapsed,
   onCollapsedChange,
   onOpenStructure,
+  onSaveProject,
+  onSaveStructure,
   previewStatus,
   scene,
   selectedFileName,
@@ -33,6 +46,8 @@ export function StructureSummaryCard({
   isCollapsed: boolean;
   onCollapsedChange: (isCollapsed: boolean) => void;
   onOpenStructure: () => void;
+  onSaveProject: () => void;
+  onSaveStructure: (format: StructureTextExportFormat) => void;
   previewStatus: PreviewStatus;
   scene: SceneSpec | null;
   selectedFileName: string | null;
@@ -43,6 +58,8 @@ export function StructureSummaryCard({
     codes: Set<string>;
     scene: SceneSpec | null;
   }>(() => ({ codes: new Set(), scene: null }));
+  const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
+  const saveMenuCloseTimeoutRef = useRef<number | null>(null);
   const hasExpandableContent = Boolean(scene);
   const visibleWarnings = useMemo(() => {
     const dismissedWarningCodes =
@@ -50,6 +67,31 @@ export function StructureSummaryCard({
     return scene?.warnings?.filter((warning) => !dismissedWarningCodes?.has(warning.code)) ?? [];
   }, [dismissedWarnings, scene]);
   const toggleDetailsLabel = isCollapsed ? "Expand details" : "Collapse details";
+  const openSaveMenu = useCallback(() => {
+    if (saveMenuCloseTimeoutRef.current !== null) {
+      window.clearTimeout(saveMenuCloseTimeoutRef.current);
+      saveMenuCloseTimeoutRef.current = null;
+    }
+    if (scene && previewStatus !== "loading") {
+      setIsSaveMenuOpen(true);
+    }
+  }, [previewStatus, scene]);
+  const scheduleCloseSaveMenu = useCallback(() => {
+    if (saveMenuCloseTimeoutRef.current !== null) {
+      window.clearTimeout(saveMenuCloseTimeoutRef.current);
+    }
+    saveMenuCloseTimeoutRef.current = window.setTimeout(() => {
+      setIsSaveMenuOpen(false);
+      saveMenuCloseTimeoutRef.current = null;
+    }, 140);
+  }, []);
+  const closeSaveMenu = useCallback(() => {
+    if (saveMenuCloseTimeoutRef.current !== null) {
+      window.clearTimeout(saveMenuCloseTimeoutRef.current);
+      saveMenuCloseTimeoutRef.current = null;
+    }
+    setIsSaveMenuOpen(false);
+  }, []);
 
   return (
     <aside
@@ -91,16 +133,68 @@ export function StructureSummaryCard({
           </div>
         </div>
 
-        <Button
-          size="sm"
-          aria-label="Open structure"
-          className="h-7 gap-1.5 rounded-full px-2.5 text-xs transition-[background-color,transform] duration-100 ease-out active:translate-y-[0.5px] active:bg-primary/80 [&_svg]:size-3.5"
-          disabled={previewStatus === "loading"}
-          onClick={onOpenStructure}
-        >
-          <FolderOpen data-icon="inline-start" aria-hidden="true" />
-          <span>Open</span>
-        </Button>
+        <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+          <Button
+            size="sm"
+            aria-label="Open structure"
+            className="h-7 gap-1.5 rounded-full px-2.5 text-xs transition-[background-color,transform] duration-100 ease-out active:translate-y-[0.5px] active:bg-primary/80 [&_svg]:size-3.5"
+            disabled={previewStatus === "loading"}
+            onClick={onOpenStructure}
+          >
+            <FolderOpen data-icon="inline-start" aria-hidden="true" />
+            <span>Open</span>
+          </Button>
+          <Popover open={isSaveMenuOpen} onOpenChange={setIsSaveMenuOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                size="sm"
+                aria-label="Save file"
+                className="h-7 gap-1.5 rounded-full px-2.5 text-xs transition-[background-color,transform] duration-100 ease-out active:translate-y-[0.5px] active:bg-primary/80 [&_svg]:size-3.5"
+                disabled={!scene || previewStatus === "loading"}
+                onMouseEnter={openSaveMenu}
+                onMouseLeave={scheduleCloseSaveMenu}
+                onFocus={openSaveMenu}
+              >
+                <FileDown data-icon="inline-start" aria-hidden="true" />
+                <span>Save</span>
+                <ChevronDown aria-hidden="true" className="ml-0 size-3" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="w-44 rounded-xl p-1"
+              onMouseEnter={openSaveMenu}
+              onMouseLeave={scheduleCloseSaveMenu}
+            >
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                onClick={() => {
+                  closeSaveMenu();
+                  onSaveProject();
+                }}
+              >
+                <FileDown aria-hidden="true" className="size-4" />
+                <span>Pretty Lattice .prl</span>
+              </button>
+              <Separator className="my-1" />
+              {STRUCTURE_TEXT_EXPORT_FORMATS.map((option) => (
+                <button
+                  key={option.format}
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                  onClick={() => {
+                    closeSaveMenu();
+                    onSaveStructure(option.format);
+                  }}
+                >
+                  <FileDown aria-hidden="true" className="size-4" />
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
 
       {selectedFileName ? <Separator className="my-2.5" /> : null}

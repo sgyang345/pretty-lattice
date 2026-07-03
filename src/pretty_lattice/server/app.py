@@ -14,10 +14,12 @@ def create_app(
     static_root: Path | None = None,
     dev_static_fallback: bool = True,
     startup_structure_path: Path | None = None,
+    startup_project_path: Path | None = None,
     auto_shutdown: bool = False,
 ) -> FastAPI:
     app = FastAPI(title="Pretty Lattice", version="0.1.0")
     app.state.startup_structure_path = startup_structure_path
+    app.state.startup_project_path = startup_project_path
     app.state.auto_shutdown_enabled = auto_shutdown
     app.state.session_heartbeat_seen = False
     app.state.session_last_heartbeat = None

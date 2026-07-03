@@ -1,8 +1,15 @@
 import type { AtomSpec, SceneSpec } from "../api/scene";
 import { atomLabelForAtom } from "../model/atomLabels";
+import {
+  atomVectorKeyForAtom,
+  type AtomVectorSettings,
+  type AtomVectorTuple,
+} from "../model/atomVectors";
 
 const DISPLAY_COORDINATE_DIGITS = 3;
 const COPY_COORDINATE_DIGITS = 6;
+const DISPLAY_VECTOR_DIGITS = 3;
+const COPY_VECTOR_DIGITS = 6;
 
 export interface InspectedAtomInfo {
   atom: AtomSpec;
@@ -19,6 +26,11 @@ export interface AtomMeasurementInfo {
   delta: [number, number, number] | null;
   distance: number | null;
   angleDegrees: number | null;
+}
+
+export interface AtomVectorActualInfo {
+  length: number;
+  vector: AtomVectorTuple;
 }
 
 export function inspectedAtomInfoForId(
@@ -104,6 +116,46 @@ export function formatAtomCoordinateForCopy(values: [number, number, number]): s
   return values.map((value) => formatFixedCoordinate(value, COPY_COORDINATE_DIGITS)).join(", ");
 }
 
+export function atomVectorActualInfoForAtom(
+  atom: AtomSpec,
+  atoms: readonly AtomSpec[],
+  atomVectors: AtomVectorSettings | null,
+): AtomVectorActualInfo | null {
+  if (!atomVectors) {
+    return null;
+  }
+
+  const normalizedVector =
+    atomVectors.values[atomVectorKeyForAtom(atom, atoms)] ?? [0, 0, 0];
+  const scale = atomVectors.maxAbsValue;
+  const vector: AtomVectorTuple = [
+    normalizedVector[0] * scale,
+    normalizedVector[1] * scale,
+    normalizedVector[2] * scale,
+  ];
+
+  return {
+    length: vectorLength(vector),
+    vector,
+  };
+}
+
+export function formatAtomVectorForDisplay(values: AtomVectorTuple): string {
+  return values.map((value) => formatFixedCoordinate(value, DISPLAY_VECTOR_DIGITS)).join(", ");
+}
+
+export function formatAtomVectorForCopy(values: AtomVectorTuple): string {
+  return values.map((value) => formatFixedCoordinate(value, COPY_VECTOR_DIGITS)).join(", ");
+}
+
+export function formatAtomVectorLengthForDisplay(value: number): string {
+  return formatFixedCoordinate(value, DISPLAY_VECTOR_DIGITS);
+}
+
+export function formatAtomVectorLengthForCopy(value: number): string {
+  return formatFixedCoordinate(value, COPY_VECTOR_DIGITS);
+}
+
 export function formatCellOffset(values: [number, number, number]): string {
   return values.map(formatCellOffsetValue).join(", ");
 }
@@ -117,15 +169,32 @@ export function atomSiteIndex(atom: AtomSpec): number | string {
   return match?.[1] ?? "-";
 }
 
-export function atomInspectorCopyText(info: InspectedAtomInfo): string {
-  return [
+export function atomInspectorCopyText(
+  info: InspectedAtomInfo,
+  atomVectors: AtomVectorSettings | null = null,
+): string {
+  const vectorInfo = atomVectorActualInfoForAtom(
+    info.canonicalAtom,
+    info.sceneAtoms,
+    atomVectors,
+  );
+  const lines = [
     `Label: ${atomLabelForAtom(info.canonicalAtom, info.sceneAtoms)}`,
     `Element: ${info.canonicalAtom.element}`,
     `Index: ${atomSiteIndex(info.canonicalAtom)}`,
     `Fractional: ${formatAtomCoordinateForCopy(info.canonicalAtom.fractionalPosition)}`,
     `Cartesian (A): ${formatAtomCoordinateForCopy(info.canonicalAtom.position)}`,
     `Cell offset: ${formatCellOffset(info.atom.imageOffset)}`,
-  ].join("\n");
+  ];
+
+  if (vectorInfo) {
+    lines.push(
+      `Vector xyz: ${formatAtomVectorForCopy(vectorInfo.vector)}`,
+      `Vector |v|: ${formatAtomVectorLengthForCopy(vectorInfo.length)}`,
+    );
+  }
+
+  return lines.join("\n");
 }
 
 function formatFixedCoordinate(value: number, digits: number): string {

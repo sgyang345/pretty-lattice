@@ -7,23 +7,32 @@ import { cn } from "@/lib/utils";
 
 import {
   atomInspectorCopyText,
+  atomVectorActualInfoForAtom,
   formatAtomCoordinateForDisplay,
+  formatAtomVectorForDisplay,
+  formatAtomVectorLengthForDisplay,
   formatCellOffset,
   type InspectedAtomInfo,
 } from "./atomInspector";
 import { atomColorForScheme, type ElementColorOverrides } from "./colorSchemes";
-import { atomLabelForAtom, type StyleState } from "../model";
+import {
+  atomLabelForAtom,
+  type AtomVectorSettings,
+  type StyleState,
+} from "../model";
 import { GLASS_SURFACE_CLASS, TOOL_ICON_BUTTON_CLASS } from "./surface";
 
 export function AtomInspectorCard({
   colorScheme,
   colorOverrides,
+  atomVectors,
   info,
   isInspectorOpen,
   onClose,
 }: {
   colorScheme: StyleState["colorScheme"];
   colorOverrides?: ElementColorOverrides;
+  atomVectors: AtomVectorSettings | null;
   info: InspectedAtomInfo;
   isInspectorOpen: boolean;
   onClose: () => void;
@@ -31,9 +40,14 @@ export function AtomInspectorCard({
   const { atom, canonicalAtom } = info;
   const atomColor = atomColorForScheme(canonicalAtom, colorScheme, colorOverrides);
   const atomLabel = atomLabelForAtom(canonicalAtom, info.sceneAtoms);
+  const vectorInfo = atomVectorActualInfoForAtom(
+    canonicalAtom,
+    info.sceneAtoms,
+    atomVectors,
+  );
   const handleCopy = useCallback(() => {
-    void navigator.clipboard?.writeText(atomInspectorCopyText(info));
-  }, [info]);
+    void navigator.clipboard?.writeText(atomInspectorCopyText(info, atomVectors));
+  }, [atomVectors, info]);
 
   return (
     <aside
@@ -106,6 +120,18 @@ export function AtomInspectorCard({
         <dd className="truncate text-right text-foreground">
           {formatCellOffset(atom.imageOffset)}
         </dd>
+        {vectorInfo ? (
+          <>
+            <dt className="text-muted-foreground">Vector xyz</dt>
+            <dd className="truncate text-right text-foreground">
+              {formatAtomVectorForDisplay(vectorInfo.vector)}
+            </dd>
+            <dt className="text-muted-foreground">Vector |v|</dt>
+            <dd className="truncate text-right text-foreground">
+              {formatAtomVectorLengthForDisplay(vectorInfo.length)}
+            </dd>
+          </>
+        ) : null}
       </dl>
     </aside>
   );

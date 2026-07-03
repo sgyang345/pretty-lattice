@@ -4,6 +4,9 @@ import type { AtomSpec, SceneSpec } from "../src/api/scene";
 import {
   atomMeasurementInfoForIds,
   atomInspectorCopyText,
+  atomVectorActualInfoForAtom,
+  formatAtomVectorForDisplay,
+  formatAtomVectorLengthForDisplay,
   atomSiteIndex,
   formatAtomAngleForDisplay,
   formatAtomCoordinateForCopy,
@@ -95,6 +98,30 @@ describe("atom inspector formatting", () => {
     expect(multiAtomInfo?.delta).toBeNull();
     expect(multiAtomInfo?.distance).toBeNull();
     expect(multiAtomInfo?.angleDegrees).toBeNull();
+  });
+
+  test("scales selected atom vector values by the saved maximum absolute value", () => {
+    const scene = sceneWithMeasurementAtoms();
+    const atom = scene.atoms[1]!;
+    const vectorInfo = atomVectorActualInfoForAtom(atom, scene.atoms, {
+      color: "#ff0000",
+      enabled: false,
+      headSize: 100,
+      lengthScale: 200,
+      lineThickness: 100,
+      maxAbsValue: 2.5,
+      opacity: 100,
+      values: {
+        "1-Al-1": [0, 0, 0],
+        "2-Al-2": [0.4, -0.2, 1],
+        "3-Al-3": [0, 0, 0],
+        "4-Al-4": [0, 0, 0],
+      },
+    });
+
+    expect(vectorInfo?.vector).toEqual([1, -0.5, 2.5]);
+    expect(formatAtomVectorForDisplay(vectorInfo!.vector)).toBe("1.000, -0.500, 2.500");
+    expect(formatAtomVectorLengthForDisplay(vectorInfo!.length)).toBe("2.739");
   });
 });
 

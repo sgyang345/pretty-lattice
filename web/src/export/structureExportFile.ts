@@ -12,6 +12,7 @@ import type {
 import { exportFileStem } from "./fileNames";
 
 export async function createStructureExportFile({
+  atomVectors,
   cameraOrientationRef,
   componentOpacity,
   componentVisibility,
@@ -34,6 +35,7 @@ export async function createStructureExportFile({
 
   const cameraPose = createCameraPoseSnapshot(cameraOrientationRef.current);
   const rasterImage = await renderExportRaster({
+    atomVectors,
     cameraPose,
     componentOpacity,
     componentVisibility,

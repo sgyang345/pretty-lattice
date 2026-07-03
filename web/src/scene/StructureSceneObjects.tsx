@@ -5,6 +5,7 @@ import { Fog } from "three";
 import type { SceneSpec } from "../api/scene";
 import type {
   AtomLabelSettings,
+  AtomVectorSettings,
   ComponentOpacityState,
   ExportMeshQuality,
   StyleState,
@@ -24,6 +25,7 @@ import { createBondRenderItems } from "./BondRenderItems";
 import { CellFrame } from "./CellFrame";
 import { MemoizedBatchedPolyhedra } from "./BatchedPolyhedra";
 import { AtomLabels } from "./AtomLabels";
+import { AtomVectors } from "./AtomVectors";
 export {
   POLYHEDRON_EDGE_COLOR,
   POLYHEDRON_EDGE_OPACITY,
@@ -68,6 +70,7 @@ export const EXPORT_SCENE_MESH_DETAIL_PRESETS: Record<ExportMeshQuality, SceneMe
 
 export function PreviewSceneContent({
   atomLabelSettings,
+  atomVectors,
   componentOpacity,
   layout,
   materialFamilies,
@@ -90,6 +93,7 @@ export function PreviewSceneContent({
   unitCellLineWidthScale = 1,
 }: {
   atomLabelSettings: AtomLabelSettings | null;
+  atomVectors: AtomVectorSettings | null;
   componentOpacity: ComponentOpacityState;
   layout: SceneLayout;
   materialFamilies: ResolvedStructureMaterialFamilies;
@@ -116,8 +120,10 @@ export function PreviewSceneContent({
       <SceneFog layout={layout} style={style} />
       <MemoizedStructureSceneObjects
         atomLabelSettings={atomLabelSettings}
+        atomVectors={atomVectors}
         componentOpacity={componentOpacity}
         groupPosition={layout.groupPosition}
+        layoutSpan={layout.span}
         materialFamilies={materialFamilies}
         meshDetail={meshDetail}
         scene={scene}
@@ -238,8 +244,10 @@ function lerp(start: number, end: number, amount: number): number {
 
 export function StructureSceneObjects({
   atomLabelSettings,
+  atomVectors,
   componentOpacity,
   groupPosition,
+  layoutSpan,
   interactionLocked = false,
   materialFamilies,
   meshDetail,
@@ -261,8 +269,10 @@ export function StructureSceneObjects({
   unitCellLineWidthScale = 1,
 }: {
   atomLabelSettings: AtomLabelSettings | null;
+  atomVectors: AtomVectorSettings | null;
   componentOpacity: ComponentOpacityState;
   groupPosition: VectorTuple;
+  layoutSpan: number;
   interactionLocked?: boolean;
   materialFamilies: ResolvedStructureMaterialFamilies;
   meshDetail: SceneMeshDetail;
@@ -364,6 +374,13 @@ export function StructureSceneObjects({
             radiusModel={style.atomRadiusModel}
             radiusScale={style.atomRadius / 100}
             opacity={componentOpacity.atoms / 100}
+          />
+        ) : null}
+        {atomVectors?.enabled ? (
+          <AtomVectors
+            scene={scene}
+            settings={atomVectors}
+            span={layoutSpan}
           />
         ) : null}
         {atomLabelSettings ? (

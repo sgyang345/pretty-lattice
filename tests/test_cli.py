@@ -61,6 +61,15 @@ def test_rewrite_file_open_args_inserts_gui_command(tmp_path: Path) -> None:
         str(structure_file),
     ]
 
+    project_file = tmp_path / "SrTiO3.prl"
+    project_file.write_text("{}")
+
+    assert _rewrite_file_open_args([str(project_file)]) == [
+        "gui",
+        "--file",
+        str(project_file),
+    ]
+
 
 def test_rewrite_file_open_args_keeps_existing_commands() -> None:
     assert _rewrite_file_open_args(["gui", "--no-open"]) == ["gui", "--no-open"]
@@ -78,6 +87,12 @@ def test_rewrite_file_open_args_handles_missing_structure_like_path() -> None:
         "gui",
         "--file",
         "STRU",
+        "--no-open",
+    ]
+    assert _rewrite_file_open_args(["saved.prl", "--no-open"]) == [
+        "gui",
+        "--file",
+        "saved.prl",
         "--no-open",
     ]
 
@@ -105,6 +120,35 @@ def test_multi_file_child_command_uses_ready_file(tmp_path: Path, monkeypatch) -
         "--external-open",
         "--ready-file",
         str(ready_file),
+        "--foreground",
+    ]
+
+
+def test_background_gui_child_command_runs_foreground_child(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(cli.sys, "argv", ["prl"])
+    structure_file = tmp_path / "SrTiO3.vasp"
+    ready_file = tmp_path / "server.port"
+
+    assert cli._background_gui_child_command(
+        structure_file=structure_file,
+        host="127.0.0.1",
+        port=8765,
+        no_open=False,
+        ready_file=ready_file,
+    ) == [
+        "prl",
+        "gui",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8765",
+        "--ready-file",
+        str(ready_file),
+        "--foreground",
+        "--no-open",
+        "--file",
+        str(structure_file),
+        "--external-open",
     ]
 
 
@@ -141,8 +185,12 @@ def test_multiple_file_open_opens_urls_in_argument_order(tmp_path: Path, monkeyp
         def poll(self) -> int | None:
             return 0
 
-    def fake_popen(command: list[str]) -> FakeProcess:
+    def fake_popen(command: list[str], **kwargs) -> FakeProcess:
         commands.append(command)
+        assert kwargs["stdin"] is cli.subprocess.DEVNULL
+        assert kwargs["stdout"] is cli.subprocess.DEVNULL
+        assert kwargs["stderr"] is cli.subprocess.DEVNULL
+        assert kwargs["start_new_session"] is True
         ready_file = Path(command[command.index("--ready-file") + 1])
         port = 41000 + len(commands)
         ready_file.write_text(f"{port}\n")
@@ -164,6 +212,7 @@ def test_multiple_file_open_opens_urls_in_argument_order(tmp_path: Path, monkeyp
         command[command.index("--file") + 1]
         for command in commands
     ] == [str(path.resolve()) for path in structure_files]
+    assert all("--foreground" in command for command in commands)
     assert opened_urls == [
         ("http://127.0.0.1:41001?startup=1", True),
         ("http://127.0.0.1:41002?startup=1", True),
@@ -176,6 +225,12 @@ def test_gui_url_marks_startup_structure() -> None:
     assert _gui_url("127.0.0.1", 8765, has_startup_structure=True) == (
         "http://127.0.0.1:8765?startup=1"
     )
+    assert _gui_url("127.0.0.1", 8765, startup_mode="structure") == (
+        "http://127.0.0.1:8765?startup=1"
+    )
+    assert _gui_url("127.0.0.1", 8765, startup_mode="project") == (
+        "http://127.0.0.1:8765?project=1"
+    )
 
 
 def test_help_accepts_short_option() -> None:
@@ -187,6 +242,7 @@ def test_help_accepts_short_option() -> None:
     assert gui_result.exit_code == 0
     assert "Pretty Lattice command line tools." in root_result.output
     assert "prl STRUCTURE.vasp" in normalized_root_output
+    assert "prl saved-view.prl" in normalized_root_output
     assert "prl STRUCTURE_1.vasp STRUCTURE_2.cif" in normalized_root_output
     assert "Start the local Pretty Lattice GUI server." in gui_result.output
 

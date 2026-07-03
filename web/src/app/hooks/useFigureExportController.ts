@@ -13,6 +13,7 @@ import {
   downloadFigureExportFiles,
 } from "../exportFigure";
 import {
+  type AtomVectorSettings,
   createDefaultExportSettings,
   syncExportSettingsProjectedSize,
   type ComponentOpacityState,
@@ -24,6 +25,7 @@ import {
 } from "../../model";
 
 interface UseFigureExportControllerOptions {
+  atomVectors: AtomVectorSettings;
   cameraOrientationRef: RefObject<Quaternion>;
   componentOpacity: ComponentOpacityState;
   componentVisibility: ComponentVisibilityState;
@@ -37,6 +39,7 @@ interface UseFigureExportControllerOptions {
 }
 
 export function useFigureExportController({
+  atomVectors,
   cameraOrientationRef,
   componentOpacity,
   componentVisibility,
@@ -69,6 +72,7 @@ export function useFigureExportController({
       atomLabelSettings: componentVisibility.atomLabels.enabled
         ? componentVisibility.atomLabels
         : null,
+      atomVectors,
       cameraPose: createCameraPoseSnapshot(cameraOrientationRef.current),
       componentOpacity,
       scene: visibleScene,
@@ -78,6 +82,7 @@ export function useFigureExportController({
     });
   }, [
     cameraOrientationRef,
+    atomVectors,
     componentOpacity,
     componentVisibility.atomLabels,
     componentVisibility.atoms,
@@ -140,6 +145,7 @@ export function useFigureExportController({
     try {
       const settingsForExport = prepareExportSettings();
       const exportFiles = await createFigureExportFiles({
+        atomVectors,
         cameraOrientationRef,
         componentOpacity,
         componentVisibility,
@@ -163,6 +169,7 @@ export function useFigureExportController({
     }
   }, [
     cameraOrientationRef,
+    atomVectors,
     componentOpacity,
     componentVisibility,
     isExporting,

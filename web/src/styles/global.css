@@ -236,7 +236,7 @@
 
   .zoom-slider-snap-marker {
     position: absolute;
-    inset-block-start: 50%;
+    inset-block-start: var(--zoom-slider-snap-top);
     inset-inline-start: 50%;
     width: 14px;
     height: 2px;

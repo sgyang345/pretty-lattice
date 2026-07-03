@@ -1,6 +1,7 @@
 import type { SceneSpec } from "../api/scene";
 import type { CameraOrientationRef } from "../scene/LatticeScene";
 import type {
+  AtomVectorSettings,
   ComponentOpacityState,
   ComponentVisibilityState,
   ExportFormat,
@@ -10,6 +11,7 @@ import type {
 } from "../model";
 
 export interface CreateFigureExportOptions {
+  atomVectors: AtomVectorSettings;
   cameraOrientationRef: CameraOrientationRef;
   componentOpacity: ComponentOpacityState;
   componentVisibility: ComponentVisibilityState;

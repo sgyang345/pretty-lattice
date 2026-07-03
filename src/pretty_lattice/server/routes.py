@@ -19,7 +19,9 @@ from pretty_lattice.structures.schema import (
 
 router = APIRouter()
 MAX_STRUCTURE_UPLOAD_BYTES = 1 * 1024 * 1024
+MAX_PROJECT_FILE_BYTES = 50 * 1024 * 1024
 STRUCTURE_FILE_TOO_LARGE_MESSAGE = "File is too large to preview."
+SAFE_GENERATED_FILE_SUFFIXES = {".cif", ".prl", ".stru", ".vasp"}
 
 
 @router.get("/health")
@@ -82,6 +84,118 @@ def get_startup_structure_preview(
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
 
 
+@router.get("/startup-project")
+async def get_startup_project(request: Request) -> dict[str, str]:
+    project_path = _startup_project_path(request)
+    if project_path is None:
+        raise HTTPException(status_code=404, detail={"message": "No startup project file."})
+    if not project_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail={"message": f"Startup project file not found: {project_path}"},
+        )
+
+    try:
+        return {
+            "fileName": project_path.name,
+            "text": project_path.read_text(encoding="utf-8"),
+        }
+    except OSError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": f"Could not read startup project file: {project_path}"},
+        ) from exc
+
+
+@router.post("/startup-project")
+async def save_startup_project(request: Request) -> dict[str, str]:
+    project_path = _startup_project_save_path(request)
+    if project_path is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "No startup file directory is available."},
+        )
+
+    payload = await request.json()
+    project_text = payload.get("text") if isinstance(payload, dict) else None
+    overwrite = payload.get("overwrite") is True if isinstance(payload, dict) else False
+    if not isinstance(project_text, str) or not project_text:
+        raise HTTPException(status_code=400, detail={"message": "Project text is required."})
+    if len(project_text.encode("utf-8")) > MAX_PROJECT_FILE_BYTES:
+        raise HTTPException(status_code=413, detail={"message": "Project file is too large."})
+    if project_path.exists() and not overwrite:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "fileName": project_path.name,
+                "message": f"Project file already exists: {project_path}",
+                "path": str(project_path),
+            },
+        )
+
+    try:
+        project_path.write_text(project_text, encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": f"Could not save project file: {project_path}"},
+        ) from exc
+
+    return {
+        "fileName": project_path.name,
+        "path": str(project_path),
+    }
+
+
+@router.post("/startup-file")
+async def save_startup_file(request: Request) -> dict[str, str]:
+    save_directory = _startup_save_directory(request)
+    if save_directory is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "No startup file directory is available."},
+        )
+
+    payload = await request.json()
+    file_text = payload.get("text") if isinstance(payload, dict) else None
+    file_name = payload.get("fileName") if isinstance(payload, dict) else None
+    overwrite = payload.get("overwrite") is True if isinstance(payload, dict) else False
+    if not isinstance(file_text, str) or not file_text:
+        raise HTTPException(status_code=400, detail={"message": "File text is required."})
+    if len(file_text.encode("utf-8")) > MAX_PROJECT_FILE_BYTES:
+        raise HTTPException(status_code=413, detail={"message": "File is too large."})
+    if not isinstance(file_name, str):
+        raise HTTPException(status_code=400, detail={"message": "File name is required."})
+
+    try:
+        save_path = _safe_generated_file_path(save_directory, file_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
+
+    if save_path.exists() and not overwrite:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "fileName": save_path.name,
+                "message": f"File already exists: {save_path}",
+                "path": str(save_path),
+            },
+        )
+
+    try:
+        save_path.write_text(file_text, encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": f"Could not save file: {save_path}"},
+        ) from exc
+
+    return {
+        "fileName": save_path.name,
+        "path": str(save_path),
+    }
+
+
 async def _uploaded_payload(request: Request) -> bytes:
     content_length = request.headers.get("content-length")
     if content_length is not None:
@@ -113,3 +227,43 @@ def _startup_structure_path(request: Request) -> Path | None:
     if structure_path is None:
         return None
     return Path(structure_path)
+
+
+def _startup_project_path(request: Request) -> Path | None:
+    project_path = getattr(request.app.state, "startup_project_path", None)
+    if project_path is None:
+        return None
+    return Path(project_path)
+
+
+def _startup_project_save_path(request: Request) -> Path | None:
+    project_path = _startup_project_path(request)
+    if project_path is not None:
+        return project_path
+
+    structure_path = _startup_structure_path(request)
+    if structure_path is None:
+        return None
+    return structure_path.with_suffix(".prl")
+
+
+def _startup_save_directory(request: Request) -> Path | None:
+    structure_path = _startup_structure_path(request)
+    if structure_path is not None:
+        return structure_path.parent
+
+    project_path = _startup_project_path(request)
+    if project_path is not None:
+        return project_path.parent
+
+    return None
+
+
+def _safe_generated_file_path(directory: Path, file_name: str) -> Path:
+    name = Path(file_name).name
+    if name in {"", ".", ".."} or name != file_name:
+        raise ValueError("A simple file name is required.")
+    suffix = Path(name).suffix.lower()
+    if suffix not in SAFE_GENERATED_FILE_SUFFIXES:
+        raise ValueError(f"Unsupported generated file suffix: {suffix or '(none)'}")
+    return directory / name

@@ -2,6 +2,7 @@ import { Lock, RotateCcw, Unlock } from "lucide-react";
 import {
   type CSSProperties,
   type KeyboardEvent,
+  type WheelEvent,
   useEffect,
   useRef,
   useState,
@@ -23,13 +24,17 @@ import {
 } from "../surface";
 import type { CameraInteractionStore } from "../cameraInteractionStore";
 import {
+  clampViewScale,
+  DEFAULT_VIEW_SCALE,
   formatZoomPercent,
   parseZoomPercentInput,
   sliderPositionToViewScale,
   snapZoomSliderPosition,
   viewScaleToSliderPosition,
+  ZOOM_SLIDER_SNAP_POSITION,
 } from "../viewState";
 import type { PreviewFpsStore } from "../../model/previewFpsStore";
+import { wheelStepDirection } from "./commonPanel/sharedControls";
 
 const LOCKED_INTERACTION_FEEDBACK_ANIMATION_MS = 420;
 const RESET_VIEW_FEEDBACK_ANIMATION_MS = 150;
@@ -81,7 +86,11 @@ export function ViewControlRail({
   const sliderThumbTravelPx = ZOOM_SLIDER_HEIGHT_PX - ZOOM_SLIDER_THUMB_SIZE_PX;
   const sliderThumbTopPx =
     ZOOM_SLIDER_THUMB_SIZE_PX / 2 + (1 - sliderPosition) * sliderThumbTravelPx;
+  const sliderSnapTopPx =
+    ZOOM_SLIDER_THUMB_SIZE_PX / 2 +
+    (1 - ZOOM_SLIDER_SNAP_POSITION) * sliderThumbTravelPx;
   const sliderStyle = {
+    "--zoom-slider-snap-top": `${sliderSnapTopPx}px`,
     "--zoom-slider-thumb-top": `${sliderThumbTopPx}px`,
   } as CSSProperties;
   const visibleLockFeedbackPhase = interactionLocked ? lockFeedbackPhase : null;
@@ -193,7 +202,30 @@ export function ViewControlRail({
     if (event.key === "Escape") {
       setZoomText(formatZoomPercent(viewScale));
       event.currentTarget.blur();
+      return;
     }
+
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      const direction = event.key === "ArrowUp" ? 1 : -1;
+      const step = event.shiftKey ? 0.1 : 0.01;
+      cameraInteractionStore.requestViewScale(
+        clampViewScale(viewScale + DEFAULT_VIEW_SCALE * direction * step),
+      );
+    }
+  }
+
+  function handleZoomWheel(event: WheelEvent<HTMLElement>) {
+    if (event.deltaY === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const step = event.shiftKey ? 0.1 : 0.01;
+    cameraInteractionStore.requestViewScale(
+      clampViewScale(viewScale + DEFAULT_VIEW_SCALE * wheelStepDirection(event) * step),
+    );
   }
 
   return (
@@ -295,6 +327,7 @@ export function ViewControlRail({
               onPointerCancel={handleZoomSliderPointerEnd}
               onPointerDown={handleZoomSliderPointerDown}
               onPointerUp={handleZoomSliderPointerEnd}
+              onWheel={handleZoomWheel}
             />
             <span
               aria-hidden="true"
@@ -322,6 +355,7 @@ export function ViewControlRail({
               onBlur={commitZoomText}
               onChange={(event) => setZoomText(event.target.value)}
               onKeyDown={handleZoomKeyDown}
+              onWheel={handleZoomWheel}
             />
             <span
               aria-hidden="true"

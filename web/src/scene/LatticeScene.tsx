@@ -9,6 +9,7 @@ import {
   DEFAULT_DRAG_SENSITIVITY,
   DEFAULT_PREVIEW_MESH_QUALITY,
   type AtomLabelSettings,
+  type AtomVectorSettings,
   type ComponentOpacityState,
   type MeshQuality,
   type StyleState,
@@ -130,6 +131,7 @@ export function LatticeScene({
   previewMeshQuality = DEFAULT_PREVIEW_MESH_QUALITY,
   previewFpsStore,
   atomLabelSettings = null,
+  atomVectors = null,
   showAtoms = true,
   showFpsOverlay = false,
   showUnitCell = true,
@@ -170,6 +172,7 @@ export function LatticeScene({
   previewMeshQuality?: MeshQuality;
   previewFpsStore?: PreviewFpsStore;
   atomLabelSettings?: AtomLabelSettings | null;
+  atomVectors?: AtomVectorSettings | null;
   showAtoms?: boolean;
   showFpsOverlay?: boolean;
   showUnitCell?: boolean;
@@ -245,6 +248,7 @@ export function LatticeScene({
       />
       <PreviewSceneContent
         atomLabelSettings={atomLabelSettings}
+        atomVectors={atomVectors}
         componentOpacity={componentOpacity}
         layout={layout}
         materialFamilies={materialFamilies}

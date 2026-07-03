@@ -231,6 +231,7 @@ export function InstancedAtoms({
   return (
     <>
       <instancedMesh
+        key={atomInstances.length}
         ref={meshRef}
         args={[undefined, undefined, atomInstances.length]}
         onClick={handleClick}

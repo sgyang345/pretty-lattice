@@ -17,10 +17,12 @@ import {
   loadStaticScenePreview,
   loadStartupStructurePreview,
   shouldLoadStartupStructurePreview,
+  shouldLoadStartupProjectFile,
   uploadStructurePreview,
   type BondAlgorithm,
   type SceneSpec,
 } from "../../api/scene";
+import type { PrettyLatticeProjectFile } from "../../model";
 import type { PreviewStatus } from "../previewState";
 
 const MAX_STRUCTURE_UPLOAD_BYTES = 1 * 1024 * 1024;
@@ -41,7 +43,11 @@ interface UseStructurePreviewOptions {
   ) => void;
 }
 
-type PreviewSource = "static" | "startup" | "upload";
+type PreviewSource = "project" | "startup" | "startup-project" | "static" | "upload";
+
+interface LoadProjectPreviewOptions {
+  source?: Extract<PreviewSource, "project" | "startup-project">;
+}
 
 export function useStructurePreview({
   onBondAlgorithmSceneLoaded,
@@ -50,9 +56,12 @@ export function useStructurePreview({
 }: UseStructurePreviewOptions) {
   const isStaticScenePreview = hasStaticScenePreview();
   const shouldLoadStartupStructure = shouldLoadStartupStructurePreview();
+  const shouldLoadStartupProject = shouldLoadStartupProjectFile();
   const [scene, setScene] = useState<SceneSpec | null>(null);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>(() =>
-    isStaticScenePreview || shouldLoadStartupStructure ? "loading" : "idle",
+    isStaticScenePreview || shouldLoadStartupStructure || shouldLoadStartupProject
+      ? "loading"
+      : "idle",
   );
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -143,7 +152,7 @@ export function useStructurePreview({
   }, [isStaticScenePreview, onPreviewCleared, resetLoadedPreviewState]);
 
   useEffect(() => {
-    if (isStaticScenePreview || !shouldLoadStartupStructure) {
+    if (isStaticScenePreview || shouldLoadStartupProject || !shouldLoadStartupStructure) {
       return;
     }
 
@@ -154,10 +163,15 @@ export function useStructurePreview({
     return () => {
       isCurrent = false;
     };
-  }, [isStaticScenePreview, loadStartupPreview, shouldLoadStartupStructure]);
+  }, [
+    isStaticScenePreview,
+    loadStartupPreview,
+    shouldLoadStartupProject,
+    shouldLoadStartupStructure,
+  ]);
 
   useEffect(() => {
-    if (isStaticScenePreview || shouldLoadStartupStructure) {
+    if (isStaticScenePreview || shouldLoadStartupProject || shouldLoadStartupStructure) {
       return;
     }
 
@@ -168,7 +182,12 @@ export function useStructurePreview({
     return () => {
       isCurrent = false;
     };
-  }, [isStaticScenePreview, loadStartupPreview, shouldLoadStartupStructure]);
+  }, [
+    isStaticScenePreview,
+    loadStartupPreview,
+    shouldLoadStartupProject,
+    shouldLoadStartupStructure,
+  ]);
 
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
@@ -224,6 +243,26 @@ export function useStructurePreview({
       }
     },
     [isStaticScenePreview, onPreviewCleared, resetLoadedPreviewState],
+  );
+
+  const loadProjectPreview = useCallback(
+    (
+      project: PrettyLatticeProjectFile,
+      fileName: string,
+      options: LoadProjectPreviewOptions = {},
+    ) => {
+      const nextScene = project.structure.scene;
+
+      setScene(nextScene);
+      setSelectedFileName(project.source.name ?? fileName);
+      setCurrentFile(null);
+      setPreviewSource(options.source ?? "project");
+      setBondAlgorithm(project.source.bondAlgorithm);
+      resetLoadedPreviewState(nextScene);
+      setPreviewStatus("ready");
+      setErrorMessage(null);
+    },
+    [resetLoadedPreviewState],
   );
 
   const handleBondAlgorithmChange = useCallback(
@@ -328,12 +367,14 @@ export function useStructurePreview({
 
   return {
     bondAlgorithm,
+    canSaveProjectToStartupPath: previewSource === "startup" || previewSource === "startup-project",
     errorMessage,
     errorTitle,
     handleBondAlgorithmChange,
     handleFileChange,
     handleResetAllSettings,
     isStaticScenePreview,
+    loadProjectPreview,
     previewStatus,
     scene,
     selectedFileName,

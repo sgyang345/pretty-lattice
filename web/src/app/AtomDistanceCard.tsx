@@ -5,20 +5,29 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 
 import {
+  atomVectorActualInfoForAtom,
   formatAtomAngleForDisplay,
   formatAtomCoordinateForDisplay,
   formatAtomDistanceForDisplay,
+  formatAtomVectorForDisplay,
+  formatAtomVectorLengthForDisplay,
   formatCellOffset,
   type AtomMeasurementInfo,
 } from "./atomInspector";
 import { GLASS_SURFACE_CLASS, TOOL_ICON_BUTTON_CLASS } from "./surface";
-import { atomLabelForAtom, atomNumberForAtom } from "../model";
+import {
+  atomLabelForAtom,
+  atomNumberForAtom,
+  type AtomVectorSettings,
+} from "../model";
 
 export function AtomDistanceCard({
+  atomVectors,
   info,
   isInspectorOpen,
   onClose,
 }: {
+  atomVectors: AtomVectorSettings | null;
   info: AtomMeasurementInfo;
   isInspectorOpen: boolean;
   onClose: () => void;
@@ -68,6 +77,7 @@ export function AtomDistanceCard({
             <MeasurementAtomBlock
               key={atom.id}
               atom={atom}
+              atomVectors={atomVectors}
               atoms={info.sceneAtoms}
               index={index + 1}
             />
@@ -117,13 +127,17 @@ function measurementTitle(info: AtomMeasurementInfo): string {
 
 function MeasurementAtomBlock({
   atom,
+  atomVectors,
   atoms,
   index,
 }: {
   atom: AtomMeasurementInfo["firstAtom"];
+  atomVectors: AtomVectorSettings | null;
   atoms: AtomMeasurementInfo["sceneAtoms"];
   index: number;
 }) {
+  const vectorInfo = atomVectorActualInfoForAtom(atom, atoms, atomVectors);
+
   return (
     <>
       <dt className={cn(
@@ -150,6 +164,18 @@ function MeasurementAtomBlock({
       <dd className="truncate text-right text-foreground">
         {formatCellOffset(atom.imageOffset)}
       </dd>
+      {vectorInfo ? (
+        <>
+          <dt className="text-muted-foreground">Vector xyz</dt>
+          <dd className="truncate text-right text-foreground">
+            {formatAtomVectorForDisplay(vectorInfo.vector)}
+          </dd>
+          <dt className="text-muted-foreground">Vector |v|</dt>
+          <dd className="truncate text-right text-foreground">
+            {formatAtomVectorLengthForDisplay(vectorInfo.length)}
+          </dd>
+        </>
+      ) : null}
     </>
   );
 }

@@ -98,6 +98,45 @@ export interface StartupStructurePreview {
   scene: SceneSpec;
 }
 
+export interface StartupProjectFile {
+  fileName: string;
+  text: string;
+}
+
+export interface SavedStartupProjectFile {
+  fileName: string;
+  path: string;
+}
+
+export interface SavedStartupTextFile {
+  fileName: string;
+  path: string;
+}
+
+export class StartupFileExistsError extends Error {
+  readonly fileName: string | null;
+  readonly path: string | null;
+
+  constructor({ fileName, path }: { fileName?: unknown; path?: unknown }) {
+    super("File already exists.");
+    this.name = "StartupFileExistsError";
+    this.fileName = typeof fileName === "string" ? fileName : null;
+    this.path = typeof path === "string" ? path : null;
+  }
+}
+
+export class StartupProjectExistsError extends Error {
+  readonly fileName: string | null;
+  readonly path: string | null;
+
+  constructor({ fileName, path }: { fileName?: unknown; path?: unknown }) {
+    super("Pretty Lattice project file already exists.");
+    this.name = "StartupProjectExistsError";
+    this.fileName = typeof fileName === "string" ? fileName : null;
+    this.path = typeof path === "string" ? path : null;
+  }
+}
+
 export function defaultBondAlgorithmForScene(
   scene: Pick<SceneSpec, "summary">,
 ): BondAlgorithm {
@@ -136,6 +175,10 @@ export function hasStaticScenePreview(): boolean {
 
 export function shouldLoadStartupStructurePreview(): boolean {
   return new URLSearchParams(window.location.search).get("startup") === "1";
+}
+
+export function shouldLoadStartupProjectFile(): boolean {
+  return new URLSearchParams(window.location.search).get("project") === "1";
 }
 
 export function isBackendUnavailablePreviewError(
@@ -227,6 +270,98 @@ export async function loadStartupStructurePreview(
   }
 
   return (await response.json()) as StartupStructurePreview;
+}
+
+export async function loadStartupProjectFile(): Promise<StartupProjectFile> {
+  let response: Response;
+  try {
+    response = await fetch("/api/startup-project");
+  } catch {
+    throw new StructurePreviewError(BACKEND_UNAVAILABLE_MESSAGE, "backend-unavailable");
+  }
+
+  if (!response.ok) {
+    throw new StructurePreviewError("Pretty Lattice project file could not be loaded.");
+  }
+
+  return (await response.json()) as StartupProjectFile;
+}
+
+export async function saveStartupProjectFile(
+  text: string,
+  options: { overwrite?: boolean } = {},
+): Promise<SavedStartupProjectFile> {
+  let response: Response;
+  try {
+    response = await fetch("/api/startup-project", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ overwrite: options.overwrite === true, text }),
+    });
+  } catch {
+    throw new StructurePreviewError(BACKEND_UNAVAILABLE_MESSAGE, "backend-unavailable");
+  }
+
+  if (!response.ok) {
+    if (response.status === 409) {
+      let detail: unknown = null;
+      try {
+        detail = (await response.json()).detail;
+      } catch {
+        detail = null;
+      }
+      throw new StartupProjectExistsError(
+        isRecord(detail) ? detail : {},
+      );
+    }
+    throw new StructurePreviewError("Pretty Lattice project file could not be saved.");
+  }
+
+  return (await response.json()) as SavedStartupProjectFile;
+}
+
+export async function saveStartupTextFile(
+  fileName: string,
+  text: string,
+  options: { overwrite?: boolean } = {},
+): Promise<SavedStartupTextFile> {
+  let response: Response;
+  try {
+    response = await fetch("/api/startup-file", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        fileName,
+        overwrite: options.overwrite === true,
+        text,
+      }),
+    });
+  } catch {
+    throw new StructurePreviewError(BACKEND_UNAVAILABLE_MESSAGE, "backend-unavailable");
+  }
+
+  if (!response.ok) {
+    if (response.status === 409) {
+      let detail: unknown = null;
+      try {
+        detail = (await response.json()).detail;
+      } catch {
+        detail = null;
+      }
+      throw new StartupFileExistsError(isRecord(detail) ? detail : {});
+    }
+    throw new StructurePreviewError("File could not be saved.");
+  }
+
+  return (await response.json()) as SavedStartupTextFile;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function previewEndpointForOptions(

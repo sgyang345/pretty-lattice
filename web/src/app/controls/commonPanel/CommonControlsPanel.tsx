@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 
 import type { AtomRadiusModel, AtomSpec } from "../../../api/scene";
 import type {
+  AtomVectorSettings,
   ComponentOpacityState,
   ComponentVisibilityState,
   CrystalCameraPrimaryDirection,
@@ -57,6 +58,7 @@ const COMMON_PANEL_TABS: {
 
 export function CommonControlsPanel({
   activeTab: targetActiveTab,
+  atomVectors,
   cameraState,
   cellVectors,
   componentOpacity,
@@ -70,6 +72,7 @@ export function CommonControlsPanel({
   onComponentOpacityChange,
   onComponentVisibilityChange,
   onAtomRadiusModelChange,
+  onAtomVectorsChange,
   onCameraPrimaryChange,
   onCameraRollPreviewChange,
   onCameraRollPreviewStart,
@@ -83,6 +86,7 @@ export function CommonControlsPanel({
   style,
 }: {
   activeTab: CommonPanelTab;
+  atomVectors: AtomVectorSettings;
   cameraState: CrystalCameraState;
   cellVectors: VectorTuple[];
   componentOpacity: ComponentOpacityState;
@@ -94,6 +98,7 @@ export function CommonControlsPanel({
   isExporting: boolean;
   sceneAtoms: AtomSpec[];
   onAtomRadiusModelChange: (atomRadiusModel: AtomRadiusModel) => void;
+  onAtomVectorsChange: Dispatch<SetStateAction<AtomVectorSettings>>;
   onCameraPrimaryChange: (primary: CrystalCameraPrimaryDirection) => void;
   onCameraRollPreviewChange: (rollDegrees: number) => void;
   onCameraRollPreviewStart: () => void;
@@ -333,8 +338,10 @@ export function CommonControlsPanel({
               <DisplayTabContent
                 hasPolyhedra={hasPolyhedra}
                 sceneAtoms={sceneAtoms}
+                atomVectors={atomVectors}
                 opacity={componentOpacity}
                 onOpacityChange={onComponentOpacityChange}
+                onAtomVectorsChange={onAtomVectorsChange}
                 visibility={componentVisibility}
                 onVisibilityChange={onComponentVisibilityChange}
               />

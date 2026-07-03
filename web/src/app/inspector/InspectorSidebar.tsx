@@ -2,6 +2,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
+  type WheelEvent,
   useEffect,
   useState,
 } from "react";
@@ -51,7 +52,7 @@ import {
   snapLightStrengthSliderPosition,
   type InteractionMode,
 } from "../viewState";
-import { useAutoBlurSlider } from "../controls/commonPanel/sharedControls";
+import { useAutoBlurSlider, wheelStepDirection } from "../controls/commonPanel/sharedControls";
 import {
   MESH_QUALITY_LABELS,
   MESH_QUALITY_OPTIONS,
@@ -535,6 +536,17 @@ function InspectorRangeRow({
     }
   }
 
+  function handleValueWheel(event: WheelEvent<HTMLElement>) {
+    if (event.deltaY === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const step = event.shiftKey ? 0.1 : 0.01;
+    onValueChange(clampValue(value + wheelStepDirection(event) * step));
+  }
+
   return (
     <label
       className={cn(
@@ -566,6 +578,7 @@ function InspectorRangeRow({
           onPointerCancel={sliderBlur.handlePointerEnd}
           onPointerDown={sliderBlur.handlePointerDown}
           onPointerUp={sliderBlur.handlePointerEnd}
+          onWheel={handleValueWheel}
         />
         <span aria-hidden="true" className="opacity-slider-track pointer-events-none" />
         <span aria-hidden="true" className="opacity-slider-snap-marker pointer-events-none" />
@@ -583,6 +596,7 @@ function InspectorRangeRow({
           onBlur={commitValueText}
           onChange={(event) => setValueText(event.target.value)}
           onKeyDown={handleValueKeyDown}
+          onWheel={handleValueWheel}
         />
         <span
           aria-hidden="true"

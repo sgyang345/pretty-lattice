@@ -25,6 +25,7 @@ import {
 } from "../../scene/crystalCamera";
 import {
   DEFAULT_VIEW_SCALE,
+  clampViewScale,
   createPreviewViewState,
   resetPreviewViewState,
   setPreviewCameraState,
@@ -34,6 +35,7 @@ import {
   setPreviewLightStrength,
   setPreviewShowFpsOverlay,
   type InteractionMode,
+  type PreviewViewState,
 } from "../viewState";
 
 interface UsePreviewCameraCommandsOptions {
@@ -42,6 +44,10 @@ interface UsePreviewCameraCommandsOptions {
   scene: SceneSpec | null;
   visibleScene: SceneSpec | null;
 }
+
+export type CameraScreenRotationAxis = "outward" | "right" | "upward";
+
+const DEGREES_TO_RADIANS = Math.PI / 180;
 
 export function usePreviewCameraCommands({
   cameraInteractionStore,
@@ -118,6 +124,32 @@ export function usePreviewCameraCommands({
       setCameraCommandVersion((version) => version + 1);
       setCameraOrientationVersion((version) => version + 1);
       setViewState(createPreviewViewState(nextCellVectors));
+    },
+    [cameraInteractionStore, clearCameraDerivedUiFreezeState],
+  );
+
+  const restoreViewStateForScene = useCallback(
+    (nextViewState: PreviewViewState, nextScene: SceneSpec | null) => {
+      const nextCellVectors = nextScene?.cell.vectors ?? [];
+      const nextViewScale = clampViewScale(nextViewState.viewScale);
+      const restoredViewState = {
+        ...nextViewState,
+        viewScale: nextViewScale,
+      };
+
+      clearCameraDerivedUiFreezeState();
+      cameraInteractionStore.requestViewScale(nextViewScale);
+      cameraInteractionStore.requestCameraState(restoredViewState.camera);
+      cameraOrientationRef.current.copy(
+        computeCrystalCameraPose(
+          nextCellVectors,
+          restoredViewState.camera,
+          1,
+        ).quaternion,
+      );
+      setCameraCommandVersion((version) => version + 1);
+      setCameraOrientationVersion((version) => version + 1);
+      setViewState(restoredViewState);
     },
     [cameraInteractionStore, clearCameraDerivedUiFreezeState],
   );
@@ -205,6 +237,54 @@ export function usePreviewCameraCommands({
   const handleCameraStateChange = useCallback((cameraState: CrystalCameraState) => {
     startAnimatedCameraCommand(cameraState);
   }, [startAnimatedCameraCommand]);
+
+  const handleCameraScreenAxisRotation = useCallback(
+    (axis: CameraScreenRotationAxis, deltaDegrees: number) => {
+      if (!visibleScene || !Number.isFinite(deltaDegrees) || Math.abs(deltaDegrees) < 0.0001) {
+        return;
+      }
+
+      clearCameraDerivedUiFreezeState();
+      const poseVectors = vectorsFromCameraQuaternion(cameraOrientationRef.current);
+      const rotationAxis =
+        axis === "outward"
+          ? poseVectors.outward
+          : axis === "upward"
+            ? poseVectors.up
+            : poseVectors.right;
+      const rotation = new Quaternion().setFromAxisAngle(
+        rotationAxis,
+        deltaDegrees * DEGREES_TO_RADIANS,
+      );
+      const nextQuaternion = cameraOrientationRef.current
+        .clone()
+        .premultiply(rotation)
+        .normalize();
+      const nextPoseVectors = vectorsFromCameraQuaternion(nextQuaternion);
+      const nextCameraState = stateFromViewVectors(
+        visibleScene.cell.vectors,
+        viewState.camera.primary,
+        viewState.camera.secondary,
+        nextPoseVectors.up,
+        nextPoseVectors.outward,
+      );
+
+      cameraOrientationRef.current.copy(nextQuaternion);
+      cameraInteractionStore.requestCameraState(nextCameraState);
+      setViewState((currentViewState) =>
+        setPreviewCameraState(currentViewState, nextCameraState),
+      );
+      setCameraCommandVersion((version) => version + 1);
+      setCameraOrientationVersion((version) => version + 1);
+    },
+    [
+      cameraInteractionStore,
+      clearCameraDerivedUiFreezeState,
+      viewState.camera.primary,
+      viewState.camera.secondary,
+      visibleScene,
+    ],
+  );
 
   const handleShowFpsOverlayChange = useCallback((nextShowFpsOverlay: boolean) => {
     setViewState((currentViewState) =>
@@ -391,6 +471,7 @@ export function usePreviewCameraCommands({
     handleCameraRollChange,
     handleCameraRollPreviewChange,
     handleCameraRollPreviewStart,
+    handleCameraScreenAxisRotation,
     handleCameraSecondaryChange,
     handleCameraStateChange,
     handleDragSensitivityChange,
@@ -406,6 +487,7 @@ export function usePreviewCameraCommands({
     orientationGizmoFrameRequestRef,
     requestOrientationGizmoFrame,
     resetCameraForScene,
+    restoreViewStateForScene,
     viewState,
   };
 }

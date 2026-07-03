@@ -1,6 +1,21 @@
-import { AlertTriangleIcon, FolderOpen, ImageDown, RefreshCw, RotateCcw } from "lucide-react";
 import {
+  AlertTriangleIcon,
+  ChevronsDown,
+  ChevronsLeft,
+  ChevronsRight,
+  ChevronsUp,
+  ClipboardPaste,
+  Copy,
+  FileDown,
+  FolderOpen,
+  ImageDown,
+  RefreshCw,
+  RotateCcw,
+} from "lucide-react";
+import {
+  type ChangeEvent,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -12,6 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -20,9 +36,23 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { AtomDistanceCard } from "./AtomDistanceCard";
 import { AtomInspectorCard } from "./AtomInspectorCard";
-import type { SceneSpec } from "../api/scene";
+import {
+  loadStartupProjectFile,
+  saveStartupTextFile,
+  saveStartupProjectFile,
+  shouldLoadStartupProjectFile,
+  StartupFileExistsError,
+  StartupProjectExistsError,
+  type SceneSpec,
+} from "../api/scene";
 import {
   atomMeasurementInfoForIds,
   inspectedAtomInfoForId,
@@ -44,7 +74,10 @@ import { createPreviewFpsStore } from "../model/previewFpsStore";
 import { deriveElementLegendEntries } from "./elementLegend";
 import { useFigureExportController } from "./hooks/useFigureExportController";
 import { useLockedInteractionFeedback } from "./hooks/useLockedInteractionFeedback";
-import { usePreviewCameraCommands } from "./hooks/usePreviewCameraCommands";
+import {
+  usePreviewCameraCommands,
+  type CameraScreenRotationAxis,
+} from "./hooks/usePreviewCameraCommands";
 import { useStructurePreview } from "./hooks/useStructurePreview";
 import { ElementLegend } from "./legend/ElementLegend";
 import {
@@ -60,7 +93,12 @@ import {
 import {
   createDefaultComponentOpacity,
   createDefaultComponentVisibility,
+  createDefaultAtomVectorSettings,
   createDefaultStyle,
+  createPrettyLatticeProject,
+  clampDragSensitivity,
+  clampLightStrength,
+  clampViewScale,
   baseColorSchemeForStyle,
   DEFAULT_SHOW_CRYSTAL_AXIS_LABELS,
   DEFAULT_UNIT_CELL_LINE_STYLE,
@@ -70,10 +108,29 @@ import {
   type MeshQuality,
   type UnitCellLineStyle,
   hasPolyhedra,
+  isPrettyLatticeProjectFileName,
+  normalizeAtomVectorSettings,
+  parsePrettyLatticeProjectFile,
+  prettyLatticeProjectFileName,
+  prettyLatticeProjectJson,
+  type AtomVectorSettings,
+  type CrystalCameraState,
+  type InteractionMode,
+  type PreviewViewState,
   previewSafeAreaForInspector,
   sceneOffsetXForInspector,
   visibleSceneForComponents,
 } from "../model";
+import {
+  createStructureTextExportFile,
+  STRUCTURE_TEXT_EXPORT_FORMATS,
+  type StructureTextExportFormat,
+} from "../export/structureTextExport";
+import { downloadBlob } from "./exportFigure";
+import {
+  GLASS_SURFACE_CLASS,
+  TOOL_ICON_BUTTON_CLASS,
+} from "./surface";
 
 interface ResetLoadedPreviewOptions {
   preserveActiveCommonPanelTab?: boolean;
@@ -89,19 +146,440 @@ interface AtomBoxSelectionDrag {
   startY: number;
 }
 
+interface PendingFileSaveConflict {
+  fileName: string;
+  kind: "project" | "structure";
+  path: string;
+  text: string;
+  suggestedFileName: string;
+}
+
 type ResetLoadedPreviewState = (
   nextScene: SceneSpec | null,
   options?: ResetLoadedPreviewOptions,
 ) => void;
 
 const SESSION_HEARTBEAT_INTERVAL_MS = 3000;
+const SAVE_PROJECT_MESSAGE_TIMEOUT_MS = 5000;
+const VIEW_SETTINGS_MESSAGE_TIMEOUT_MS = 3000;
 const ATOM_BOX_SELECTION_DRAG_THRESHOLD_PX = 4;
+const VIEW_SETTINGS_CLIPBOARD_FORMAT = "pretty-lattice-view-settings";
+const VIEW_SETTINGS_CLIPBOARD_VERSION = 1;
+
+type ClipboardViewState = Pick<
+  PreviewViewState,
+  "camera" | "dragSensitivity" | "interactionMode" | "lightStrength" | "viewScale"
+>;
+
+interface ClipboardViewSettings {
+  format: typeof VIEW_SETTINGS_CLIPBOARD_FORMAT;
+  version: typeof VIEW_SETTINGS_CLIPBOARD_VERSION;
+  view: ClipboardViewState;
+}
 
 function sendSessionHeartbeat() {
   void fetch("/api/session-heartbeat", {
     method: "POST",
     keepalive: true,
   }).catch(() => {});
+}
+
+function viewSettingsClipboardJson(viewState: PreviewViewState): string {
+  const viewSettings: ClipboardViewSettings = {
+    format: VIEW_SETTINGS_CLIPBOARD_FORMAT,
+    version: VIEW_SETTINGS_CLIPBOARD_VERSION,
+    view: {
+      camera: viewState.camera,
+      dragSensitivity: viewState.dragSensitivity,
+      interactionMode: viewState.interactionMode,
+      lightStrength: viewState.lightStrength,
+      viewScale: viewState.viewScale,
+    },
+  };
+
+  return `${JSON.stringify(viewSettings, null, 2)}\n`;
+}
+
+function parseViewSettingsClipboardText(text: string): ClipboardViewState {
+  const value = JSON.parse(text) as unknown;
+  if (!isClipboardViewSettings(value)) {
+    throw new Error("Clipboard does not contain Pretty Lattice view settings.");
+  }
+
+  return {
+    ...value.view,
+    dragSensitivity: clampDragSensitivity(value.view.dragSensitivity),
+    lightStrength: clampLightStrength(value.view.lightStrength),
+    viewScale: clampViewScale(value.view.viewScale),
+  };
+}
+
+function isClipboardViewSettings(value: unknown): value is ClipboardViewSettings {
+  return (
+    isRecord(value) &&
+    value.format === VIEW_SETTINGS_CLIPBOARD_FORMAT &&
+    value.version === VIEW_SETTINGS_CLIPBOARD_VERSION &&
+    isRecord(value.view) &&
+    isCrystalCameraState(value.view.camera) &&
+    isInteractionMode(value.view.interactionMode) &&
+    typeof value.view.dragSensitivity === "number" &&
+    typeof value.view.lightStrength === "number" &&
+    typeof value.view.viewScale === "number"
+  );
+}
+
+function isCrystalCameraState(value: unknown): value is CrystalCameraState {
+  return (
+    isRecord(value) &&
+    isVectorTuple(value.direct) &&
+    isVectorTuple(value.reciprocal) &&
+    isCameraScreenDirection(value.primary) &&
+    isCameraScreenDirection(value.secondary) &&
+    typeof value.rollDegrees === "number" &&
+    Number.isFinite(value.rollDegrees)
+  );
+}
+
+function isVectorTuple(value: unknown): value is [number, number, number] {
+  return (
+    Array.isArray(value) &&
+    value.length === 3 &&
+    value.every((entry) => typeof entry === "number" && Number.isFinite(entry))
+  );
+}
+
+function isCameraScreenDirection(value: unknown): value is CrystalCameraState["primary"] {
+  return value === "right" || value === "upward" || value === "outward";
+}
+
+function isInteractionMode(value: unknown): value is InteractionMode {
+  return value === "trackball" || value === "orbit";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function ViewAxisRotationControl({
+  onRotate,
+}: {
+  onRotate: (axis: CameraScreenRotationAxis, deltaDegrees: number) => void;
+}) {
+  const [zRotation, setZRotation] = useState(0);
+  const [xRotation, setXRotation] = useState(0);
+  const [yRotation, setYRotation] = useState(0);
+  const [presetAngle, setPresetAngle] = useState(15);
+
+  function rotateAxis(
+    axis: CameraScreenRotationAxis,
+    deltaDegrees: number,
+    currentValue: number,
+    setValue: (value: number) => void,
+  ) {
+    if (!Number.isFinite(deltaDegrees) || Math.abs(deltaDegrees) < 0.000001) {
+      return;
+    }
+
+    setValue(normalizeDialDegrees(currentValue + deltaDegrees));
+    onRotate(axis, deltaDegrees);
+  }
+
+  return (
+    <TooltipProvider>
+      <div
+        className="absolute right-4 top-16 z-30 h-24 w-24"
+        aria-label="View rotation dials"
+      >
+        <ViewCrossAxisSlider
+          presetAngle={presetAngle}
+          onPresetAngleChange={setPresetAngle}
+          onRotateHorizontal={(deltaDegrees) =>
+            rotateAxis("outward", deltaDegrees, zRotation, setZRotation)
+          }
+          onRotateVertical={(deltaDegrees) =>
+            rotateAxis("right", deltaDegrees, xRotation, setXRotation)
+          }
+        />
+        <ViewYawOvalSlider
+          className="absolute left-1/2 top-full mt-2 -translate-x-1/2"
+          presetAngle={presetAngle}
+          onRotate={(deltaDegrees) =>
+            rotateAxis("upward", deltaDegrees, yRotation, setYRotation)
+          }
+        />
+      </div>
+    </TooltipProvider>
+  );
+}
+
+function ViewCrossAxisSlider({
+  onRotateHorizontal,
+  onRotateVertical,
+  onPresetAngleChange,
+  presetAngle,
+}: {
+  onRotateHorizontal: (deltaDegrees: number) => void;
+  onRotateVertical: (deltaDegrees: number) => void;
+  onPresetAngleChange: (presetAngle: number) => void;
+  presetAngle: number;
+}) {
+  function rotateHorizontalByPreset(direction: -1 | 1) {
+    onRotateHorizontal(direction * presetAngle);
+  }
+
+  function rotateVerticalByPreset(direction: -1 | 1) {
+    onRotateVertical(direction * presetAngle);
+  }
+
+  function rotateButtonByWheel(
+    event: WheelEvent<HTMLButtonElement>,
+    buttonDirection: -1 | 1,
+    rotate: (direction: -1 | 1) => void,
+  ) {
+    if (event.deltaY === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const wheelDirection: -1 | 1 =
+      event.deltaY < 0 ? buttonDirection : buttonDirection === 1 ? -1 : 1;
+    rotate(wheelDirection);
+  }
+
+  function handlePresetAngleChange(event: ChangeEvent<HTMLInputElement>) {
+    onPresetAngleChange(normalizePresetAngle(event.target.value));
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="group absolute inset-0 opacity-95 transition-opacity hover:opacity-100 focus-within:opacity-100"
+          role="group"
+          aria-label="View cross-axis rotation controls"
+        >
+          <svg
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 overflow-visible drop-shadow-xl"
+            viewBox="0 0 96 96"
+          >
+            <path
+              d="M48 0C57.941 0 66 8.059 66 18V30H78C87.941 30 96 38.059 96 48C96 57.941 87.941 66 78 66H66V78C66 87.941 57.941 96 48 96C38.059 96 30 87.941 30 78V66H18C8.059 66 0 57.941 0 48C0 38.059 8.059 30 18 30H30V18C30 8.059 38.059 0 48 0Z"
+              style={{
+                fill: "color-mix(in srgb, var(--card) 72%, transparent)",
+                stroke: "color-mix(in srgb, var(--foreground) 10%, transparent)",
+              }}
+            />
+          </svg>
+          <button
+            type="button"
+            aria-label="Rotate view around screen Z backward by preset angle"
+            className={cn(
+              TOOL_ICON_BUTTON_CLASS,
+              "absolute left-1 top-1/2 z-30 grid !rounded-full -translate-y-1/2 place-items-center",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              rotateHorizontalByPreset(-1);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) =>
+              rotateButtonByWheel(event, -1, rotateHorizontalByPreset)
+            }
+          >
+            <ChevronsDown aria-hidden="true" className="size-3.5" />
+          </button>
+          <div
+            className="pointer-events-none absolute left-1/2 top-1/2 z-40 size-8 -translate-x-1/2 -translate-y-1/2 group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const direction = event.deltaY < 0 ? 1 : -1;
+              onPresetAngleChange(normalizePresetAngle(presetAngle + direction));
+            }}
+          >
+            <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-lg text-center font-mono text-[0.68rem] font-medium leading-8 text-foreground transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+              {presetAngle}°
+            </span>
+            <div
+              className="opacity-value-control pointer-events-none absolute inset-0 rounded-lg border opacity-0 transition-[background-color,border-color,box-shadow,opacity] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+              data-disabled="false"
+            >
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={presetAngle}
+                aria-label="View rotation preset angle"
+                className="size-full rounded-lg border-0 bg-transparent p-0 pr-2 text-center align-middle font-mono text-[0.68rem] leading-8 text-foreground outline-none"
+                onChange={handlePresetAngleChange}
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-[0.55rem] font-medium text-muted-foreground"
+              >
+                °
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="Rotate view around screen Z forward by preset angle"
+            className={cn(
+              TOOL_ICON_BUTTON_CLASS,
+              "absolute right-1 top-1/2 z-30 grid !rounded-full -translate-y-1/2 place-items-center",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              rotateHorizontalByPreset(1);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) =>
+              rotateButtonByWheel(event, 1, rotateHorizontalByPreset)
+            }
+          >
+            <ChevronsUp aria-hidden="true" className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Rotate view around horizontal X forward by preset angle"
+            className={cn(
+              TOOL_ICON_BUTTON_CLASS,
+              "absolute left-1/2 top-1 z-30 grid !rounded-full -translate-x-1/2 place-items-center",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              rotateVerticalByPreset(1);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) =>
+              rotateButtonByWheel(event, 1, rotateVerticalByPreset)
+            }
+          >
+            <ChevronsUp aria-hidden="true" className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Rotate view around horizontal X backward by preset angle"
+            className={cn(
+              TOOL_ICON_BUTTON_CLASS,
+              "absolute bottom-1 left-1/2 z-30 grid !rounded-full -translate-x-1/2 place-items-center",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              rotateVerticalByPreset(-1);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) =>
+              rotateButtonByWheel(event, -1, rotateVerticalByPreset)
+            }
+          >
+            <ChevronsDown aria-hidden="true" className="size-3.5" />
+          </button>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="left">Rotate around screen Z / horizontal X</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ViewYawOvalSlider({
+  className,
+  onRotate,
+  presetAngle,
+}: {
+  className?: string;
+  onRotate: (deltaDegrees: number) => void;
+  presetAngle: number;
+}) {
+  function rotateByPreset(direction: -1 | 1) {
+    onRotate(direction * presetAngle);
+  }
+
+  function rotateButtonByWheel(
+    event: WheelEvent<HTMLButtonElement>,
+    buttonDirection: -1 | 1,
+  ) {
+    if (event.deltaY === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const wheelDirection: -1 | 1 =
+      event.deltaY < 0 ? buttonDirection : buttonDirection === 1 ? -1 : 1;
+    rotateByPreset(wheelDirection);
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className={cn(
+            "group relative flex h-9 w-24 items-center justify-between rounded-full border px-1 opacity-95 shadow-xl shadow-foreground/10 transition-opacity hover:opacity-100 focus-within:opacity-100",
+            GLASS_SURFACE_CLASS,
+            className,
+          )}
+          role="group"
+          aria-label="Rotate view around current vertical Y axis"
+        >
+          <button
+            type="button"
+            aria-label="Rotate view counterclockwise around vertical axis by preset angle"
+            className={cn(
+              TOOL_ICON_BUTTON_CLASS,
+              "relative z-30 grid !rounded-full place-items-center",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              rotateByPreset(-1);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) => rotateButtonByWheel(event, -1)}
+          >
+            <ChevronsLeft aria-hidden="true" className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Rotate view clockwise around vertical axis by preset angle"
+            className={cn(
+              TOOL_ICON_BUTTON_CLASS,
+              "relative z-30 grid !rounded-full place-items-center",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              rotateByPreset(1);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) => rotateButtonByWheel(event, 1)}
+          >
+            <ChevronsRight aria-hidden="true" className="size-3.5" />
+          </button>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Rotate in the XY plane</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function normalizeDialDegrees(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  const normalized = ((value % 360) + 360) % 360;
+  return Math.abs(normalized) < 0.000001 ? 0 : normalized;
+}
+
+function normalizePresetAngle(value: number | string): number {
+  const parsedValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsedValue)) {
+    return 15;
+  }
+
+  return Math.min(90, Math.max(1, Math.round(parsedValue)));
 }
 
 export function App() {
@@ -120,10 +598,17 @@ export function App() {
   const [showCrystalAxisLabels, setShowCrystalAxisLabels] = useState(
     DEFAULT_SHOW_CRYSTAL_AXIS_LABELS,
   );
+  const [atomVectors, setAtomVectors] = useState<AtomVectorSettings>(() =>
+    createDefaultAtomVectorSettings(null),
+  );
   const [inspectedAtomId, setInspectedAtomId] = useState<string | null>(null);
   const [measuredAtomIds, setMeasuredAtomIds] = useState<string[]>([]);
   const [atomBoxSelection, setAtomBoxSelection] = useState<AtomBoxSelectionDrag | null>(null);
   const [pulseAtom, setPulseAtom] = useState<{ atomId: string; token: number } | null>(null);
+  const [saveProjectMessage, setSaveProjectMessage] = useState<string | null>(null);
+  const [viewSettingsMessage, setViewSettingsMessage] = useState<string | null>(null);
+  const [pendingFileSaveConflict, setPendingFileSaveConflict] =
+    useState<PendingFileSaveConflict | null>(null);
   const [activeCommonPanelTab, setActiveCommonPanelTab] =
     useState<CommonPanelTab>("display");
   const [cameraInteractionStore] = useState(createCameraInteractionStore);
@@ -182,14 +667,17 @@ export function App() {
     setPreviewMeshQuality(defaultPreviewMeshQualityForScene(nextScene));
     setUnitCellLineStyle(DEFAULT_UNIT_CELL_LINE_STYLE);
     setShowCrystalAxisLabels(DEFAULT_SHOW_CRYSTAL_AXIS_LABELS);
+    setAtomVectors(createDefaultAtomVectorSettings(nextScene));
   }, [clearAtomSelection]);
   const {
     bondAlgorithm,
+    canSaveProjectToStartupPath,
     errorMessage,
     errorTitle,
     handleBondAlgorithmChange,
     handleFileChange,
     handleResetAllSettings,
+    loadProjectPreview,
     previewStatus,
     scene,
     selectedFileName,
@@ -225,6 +713,7 @@ export function App() {
     handleCameraRollChange,
     handleCameraRollPreviewChange,
     handleCameraRollPreviewStart,
+    handleCameraScreenAxisRotation,
     handleCameraSecondaryChange,
     handleCameraStateChange,
     handleDragSensitivityChange,
@@ -240,6 +729,7 @@ export function App() {
     orientationGizmoFrameRequestRef,
     requestOrientationGizmoFrame,
     resetCameraForScene,
+    restoreViewStateForScene,
     viewState,
   } = usePreviewCameraCommands({
     cameraInteractionStore,
@@ -258,6 +748,7 @@ export function App() {
     setExportError,
     syncProjectedSizeForExportTab,
   } = useFigureExportController({
+    atomVectors,
     cameraOrientationRef,
     componentOpacity,
     componentVisibility,
@@ -282,6 +773,64 @@ export function App() {
     hasVisibleScene,
     interactionLocked: viewState.interactionLocked,
   });
+
+  const handleCopyViewSettings = useCallback(async () => {
+    if (!scene) {
+      return;
+    }
+
+    if (!navigator.clipboard?.writeText) {
+      setErrorMessage("Clipboard write is not available in this browser.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        viewSettingsClipboardJson({
+          ...viewState,
+          viewScale: cameraInteractionStore.getViewScaleSnapshot(),
+        }),
+      );
+      setViewSettingsMessage("View settings copied.");
+      setErrorMessage(null);
+    } catch {
+      setErrorMessage("View settings could not be copied.");
+    }
+  }, [cameraInteractionStore, scene, setErrorMessage, viewState]);
+
+  const handlePasteViewSettings = useCallback(async () => {
+    if (!scene) {
+      return;
+    }
+
+    if (!navigator.clipboard?.readText) {
+      setErrorMessage("Clipboard read is not available in this browser.");
+      return;
+    }
+
+    try {
+      const clipboardView = parseViewSettingsClipboardText(
+        await navigator.clipboard.readText(),
+      );
+      restoreViewStateForScene(
+        {
+          ...viewState,
+          ...clipboardView,
+          interactionLocked: false,
+          showFpsOverlay: viewState.showFpsOverlay,
+        },
+        scene,
+      );
+      setViewSettingsMessage("View settings applied.");
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "View settings could not be applied.",
+      );
+    }
+  }, [restoreViewStateForScene, scene, setErrorMessage, viewState]);
 
   useEffect(() => {
     inspectedAtomIdRef.current = inspectedAtomId;
@@ -320,6 +869,7 @@ export function App() {
       setPreviewMeshQuality(defaultPreviewMeshQualityForScene(nextScene));
       setUnitCellLineStyle(DEFAULT_UNIT_CELL_LINE_STYLE);
       setShowCrystalAxisLabels(DEFAULT_SHOW_CRYSTAL_AXIS_LABELS);
+      setAtomVectors(createDefaultAtomVectorSettings(nextScene));
       if (!options.preserveActiveCommonPanelTab) {
         setActiveCommonPanelTab("display");
       }
@@ -562,6 +1112,311 @@ export function App() {
       };
     });
   }, []);
+
+  const handleExportProject = useCallback(async () => {
+    if (!scene) {
+      return;
+    }
+
+    const project = createPrettyLatticeProject({
+      atomVectors,
+      bondAlgorithm,
+      componentOpacity,
+      componentVisibility,
+      exportSettings,
+      previewMeshQuality,
+      scene,
+      selectedFileName,
+      showCrystalAxisLabels,
+      style,
+      unitCellLineStyle,
+      viewState: {
+        ...viewState,
+        viewScale: cameraInteractionStore.getViewScaleSnapshot(),
+      },
+    });
+
+    const projectJson = prettyLatticeProjectJson(project);
+    const suggestedFileName = prettyLatticeProjectFileName(selectedFileName);
+    const downloadProject = (fileName = suggestedFileName) => {
+      downloadBlob(
+        new Blob([projectJson], {
+          type: "application/json",
+        }),
+        fileName,
+      );
+      setPendingFileSaveConflict(null);
+      setSaveProjectMessage("Project download started.");
+    };
+    const showSavedProject = (path: string) => {
+      setPendingFileSaveConflict(null);
+      setSaveProjectMessage(`Saved project: ${path}`);
+      setErrorMessage(null);
+      setExportError(null);
+    };
+
+    if (canSaveProjectToStartupPath) {
+      try {
+        const savedProject = await saveStartupProjectFile(projectJson);
+        showSavedProject(savedProject.path);
+        return;
+      } catch (error) {
+        if (error instanceof StartupProjectExistsError) {
+          const targetPath = error.path ?? error.fileName ?? "the existing .prl file";
+          setSaveProjectMessage(null);
+          setPendingFileSaveConflict({
+            fileName: suggestedFileName,
+            kind: "project",
+            path: targetPath,
+            text: projectJson,
+            suggestedFileName,
+          });
+          return;
+        }
+        // Fall back to browser download when the local API cannot write the startup path.
+      }
+    }
+
+    downloadProject();
+  }, [
+    atomVectors,
+    bondAlgorithm,
+    cameraInteractionStore,
+    canSaveProjectToStartupPath,
+    componentOpacity,
+    componentVisibility,
+    exportSettings,
+    previewMeshQuality,
+    scene,
+    selectedFileName,
+    setErrorMessage,
+    setExportError,
+    showCrystalAxisLabels,
+    style,
+    unitCellLineStyle,
+    viewState,
+  ]);
+
+  const handleExportStructureText = useCallback(async (format: StructureTextExportFormat) => {
+    if (!scene) {
+      return;
+    }
+
+    const exportFile = createStructureTextExportFile({
+      componentVisibility,
+      format,
+      scene,
+      selectedFileName,
+    });
+    const optionLabel =
+      STRUCTURE_TEXT_EXPORT_FORMATS.find((option) => option.format === format)?.label ??
+      "structure";
+
+    const downloadStructure = () => {
+      downloadBlob(exportFile.blob, exportFile.fileName);
+      setPendingFileSaveConflict(null);
+      setSaveProjectMessage(`${optionLabel} download started.`);
+    };
+    const showSavedStructure = (path: string) => {
+      setPendingFileSaveConflict(null);
+      setSaveProjectMessage(`Saved ${optionLabel}: ${path}`);
+      setErrorMessage(null);
+      setExportError(null);
+    };
+
+    if (canSaveProjectToStartupPath) {
+      try {
+        const savedFile = await saveStartupTextFile(exportFile.fileName, exportFile.text);
+        showSavedStructure(savedFile.path);
+        return;
+      } catch (error) {
+        if (error instanceof StartupFileExistsError) {
+          const targetPath = error.path ?? error.fileName ?? exportFile.fileName;
+          setSaveProjectMessage(null);
+          setPendingFileSaveConflict({
+            fileName: exportFile.fileName,
+            kind: "structure",
+            path: targetPath,
+            text: exportFile.text,
+            suggestedFileName: exportFile.fileName,
+          });
+          return;
+        }
+        // Fall back to browser download when the local API cannot write the startup path.
+      }
+    }
+
+    downloadStructure();
+  }, [
+    canSaveProjectToStartupPath,
+    componentVisibility,
+    scene,
+    selectedFileName,
+    setErrorMessage,
+    setExportError,
+  ]);
+
+  const handleReplaceSavedFile = useCallback(async () => {
+    if (!pendingFileSaveConflict) {
+      return;
+    }
+
+    try {
+      const savedFile =
+        pendingFileSaveConflict.kind === "project"
+          ? await saveStartupProjectFile(pendingFileSaveConflict.text, { overwrite: true })
+          : await saveStartupTextFile(
+              pendingFileSaveConflict.fileName,
+              pendingFileSaveConflict.text,
+              { overwrite: true },
+            );
+      setPendingFileSaveConflict(null);
+      setSaveProjectMessage(`Saved file: ${savedFile.path}`);
+      setErrorMessage(null);
+      setExportError(null);
+    } catch {
+      setErrorMessage("File could not be saved.");
+    }
+  }, [pendingFileSaveConflict, setErrorMessage, setExportError]);
+
+  const handleDownloadFileConflict = useCallback(() => {
+    if (!pendingFileSaveConflict) {
+      return;
+    }
+
+    downloadBlob(
+      new Blob([pendingFileSaveConflict.text], {
+        type:
+          pendingFileSaveConflict.kind === "project"
+            ? "application/json"
+            : "text/plain;charset=utf-8",
+      }),
+      pendingFileSaveConflict.suggestedFileName,
+    );
+    setPendingFileSaveConflict(null);
+    setSaveProjectMessage("File download started.");
+  }, [pendingFileSaveConflict]);
+
+  const handleCancelFileConflict = useCallback(() => {
+    setPendingFileSaveConflict(null);
+  }, []);
+
+  useEffect(() => {
+    if (!saveProjectMessage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSaveProjectMessage(null);
+    }, SAVE_PROJECT_MESSAGE_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [saveProjectMessage]);
+
+  useEffect(() => {
+    if (!viewSettingsMessage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setViewSettingsMessage(null);
+    }, VIEW_SETTINGS_MESSAGE_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [viewSettingsMessage]);
+
+  const handleProjectLoaded = useCallback(
+    (
+      projectText: string,
+      fileName: string,
+      options: { source?: "project" | "startup-project" } = {},
+    ) => {
+      try {
+        const project = parsePrettyLatticeProjectFile(projectText);
+        const projectScene = project.structure.scene;
+
+        loadProjectPreview(project, fileName, { source: options.source });
+        setComponentVisibility(project.display.visibility);
+        setComponentOpacity(project.display.opacity);
+        setStyle(project.display.style);
+        setPreviewMeshQuality(project.display.previewMeshQuality);
+        setUnitCellLineStyle(project.display.unitCellLineStyle);
+        setShowCrystalAxisLabels(project.display.showCrystalAxisLabels);
+        setAtomVectors(normalizeAtomVectorSettings(project.overlays.atomVectors, projectScene));
+        handleExportSettingsChange(project.export.settings);
+        restoreViewStateForScene(project.view, projectScene);
+        setActiveCommonPanelTab("display");
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "This is not a Pretty Lattice project file.",
+        );
+      }
+    },
+    [
+      handleExportSettingsChange,
+      loadProjectPreview,
+      restoreViewStateForScene,
+      setErrorMessage,
+    ],
+  );
+
+  const handleOpenFileChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0] ?? null;
+      if (!file) {
+        return;
+      }
+
+      if (!isPrettyLatticeProjectFileName(file.name)) {
+        await handleFileChange(event);
+        return;
+      }
+
+      event.target.value = "";
+      try {
+        handleProjectLoaded(await file.text(), file.name);
+      } catch {
+        setErrorMessage("Pretty Lattice project file could not be read.");
+      }
+    },
+    [handleFileChange, handleProjectLoaded, setErrorMessage],
+  );
+
+  useEffect(() => {
+    if (!shouldLoadStartupProjectFile()) {
+      return;
+    }
+
+    let isCurrent = true;
+
+    async function loadStartupProject() {
+      try {
+        const project = await loadStartupProjectFile();
+        if (isCurrent) {
+          handleProjectLoaded(project.text, project.fileName, {
+            source: "startup-project",
+          });
+        }
+      } catch {
+        if (isCurrent) {
+          setErrorMessage("Pretty Lattice project file could not be loaded.");
+        }
+      }
+    }
+
+    void loadStartupProject();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [handleProjectLoaded, setErrorMessage]);
+
   const previewSafeArea = previewSafeAreaForInspector();
   const sceneOffsetX = sceneOffsetXForInspector(isInspectorOpen, viewportSize.width);
   const effectivePreviewSafeArea = useMemo(
@@ -573,7 +1428,7 @@ export function App() {
     [effectivePreviewSafeArea, viewportSize],
   );
   const renderPreviewContextMenuContent = () => (
-    <ContextMenuContent className="w-36">
+    <ContextMenuContent className="w-40">
       <ContextMenuGroup>
         <ContextMenuItem
           disabled={!scene || previewStatus === "loading"}
@@ -589,6 +1444,25 @@ export function App() {
           <FolderOpen aria-hidden="true" />
           Open file
         </ContextMenuItem>
+        <ContextMenuItem
+          disabled={!scene || previewStatus === "loading"}
+          onSelect={handleExportProject}
+        >
+          <FileDown aria-hidden="true" />
+          Save project
+        </ContextMenuItem>
+        {STRUCTURE_TEXT_EXPORT_FORMATS.map((option) => (
+          <ContextMenuItem
+            key={option.format}
+            disabled={!scene || previewStatus === "loading"}
+            onSelect={() => {
+              void handleExportStructureText(option.format);
+            }}
+          >
+            <FileDown aria-hidden="true" />
+            Save {option.label}
+          </ContextMenuItem>
+        ))}
         <ContextMenuItem
           disabled={!scene || isExporting || previewStatus === "loading"}
           onSelect={() => {
@@ -655,7 +1529,7 @@ export function App() {
         aria-label="Structure file"
         className="hidden"
         tabIndex={-1}
-        onChange={(event) => void handleFileChange(event)}
+        onChange={(event) => void handleOpenFileChange(event)}
       />
 
       <ContextMenu>
@@ -696,7 +1570,7 @@ export function App() {
                 }
                 interactionLocked={viewState.interactionLocked}
                 interactionMode={viewState.interactionMode}
-                layoutScene={scene ?? visibleScene}
+                layoutScene={visibleScene}
                 resetCounter={viewState.resetCounter}
                 safeArea={previewSafeArea}
                 scene={visibleScene}
@@ -715,6 +1589,7 @@ export function App() {
                     ? componentVisibility.atomLabels
                     : null
                 }
+                atomVectors={atomVectors}
                 showAtoms={componentVisibility.atoms}
                 showFpsOverlay={viewState.showFpsOverlay}
                 showUnitCell={componentVisibility.unitCell}
@@ -781,12 +1656,14 @@ export function App() {
 
       {atomMeasurementInfo ? (
         <AtomDistanceCard
+          atomVectors={atomVectors}
           info={atomMeasurementInfo}
           isInspectorOpen={isInspectorOpen}
           onClose={() => setMeasuredAtomIds([])}
         />
       ) : inspectedAtomInfo ? (
         <AtomInspectorCard
+          atomVectors={atomVectors}
           colorScheme={legendColorScheme}
           colorOverrides={elementColorOverrides}
           info={inspectedAtomInfo}
@@ -805,6 +1682,8 @@ export function App() {
           isCollapsed={isStructureSummaryCollapsed}
           onCollapsedChange={setIsStructureSummaryCollapsed}
           onOpenStructure={() => fileInputRef.current?.click()}
+          onSaveProject={handleExportProject}
+          onSaveStructure={(format) => void handleExportStructureText(format)}
           previewStatus={previewStatus}
           scene={scene}
           selectedFileName={selectedFileName}
@@ -825,6 +1704,7 @@ export function App() {
               hasPolyhedra={hasPolyhedra(scene)}
               isExporting={isExporting}
               sceneAtoms={scene.atoms}
+              atomVectors={atomVectors}
               onActiveTabChange={setActiveCommonPanelTab}
               onAtomRadiusModelChange={(atomRadiusModel) => {
                 setStyle((currentStyle) => ({ ...currentStyle, atomRadiusModel }));
@@ -835,6 +1715,7 @@ export function App() {
               onCameraRollChange={handleCameraRollChange}
               onCameraSecondaryChange={handleCameraSecondaryChange}
               onCameraStateChange={handleCameraStateChange}
+              onAtomVectorsChange={setAtomVectors}
               onComponentOpacityChange={setComponentOpacity}
               onExport={handleExportFigure}
               onExportSettingsChange={handleExportSettingsChange}
@@ -860,8 +1741,118 @@ export function App() {
         </Alert>
       ) : null}
 
+      {saveProjectMessage ? (
+        <Alert
+          className={cn(
+            "absolute top-4 z-20 min-w-[320px] max-w-[min(720px,calc(100vw-2rem))] rounded-xl shadow-sm shadow-foreground/5",
+            scene ? "left-[386px]" : "left-[328px]",
+            "max-[760px]:left-4 max-[760px]:right-4 max-[760px]:top-[10rem] max-[760px]:w-auto",
+          )}
+          onDismiss={() => setSaveProjectMessage(null)}
+        >
+          <FileDown aria-hidden="true" />
+          <AlertTitle className="font-semibold">File saved</AlertTitle>
+          <AlertDescription className="break-all">{saveProjectMessage}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {pendingFileSaveConflict ? (
+        <Alert
+          className={cn(
+            "absolute top-4 z-30 min-w-[320px] max-w-[min(760px,calc(100vw-2rem))] rounded-xl shadow-sm shadow-foreground/5",
+            scene ? "left-[386px]" : "left-[328px]",
+            "max-[760px]:left-4 max-[760px]:right-4 max-[760px]:top-[10rem] max-[760px]:w-auto",
+          )}
+          onDismiss={handleCancelFileConflict}
+        >
+          <FileDown aria-hidden="true" />
+          <AlertTitle className="font-semibold">File already exists</AlertTitle>
+          <AlertDescription className="gap-2">
+            <p className="break-all">
+              {pendingFileSaveConflict.path}
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button
+                size="sm"
+                className="h-7 rounded-full px-3 text-xs"
+                onClick={() => void handleReplaceSavedFile()}
+              >
+                Replace
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 rounded-full px-3 text-xs"
+                onClick={handleDownloadFileConflict}
+              >
+                Save as
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 rounded-full px-3 text-xs"
+                onClick={handleCancelFileConflict}
+              >
+                Cancel
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {scene ? (
         <>
+          <TooltipProvider>
+            <div className="absolute right-14 top-4 z-30 flex h-8 overflow-hidden rounded-[10px] border border-foreground/10 bg-card/80 shadow-sm shadow-foreground/5 backdrop-blur-xl backdrop-saturate-150">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Copy view settings"
+                    className={cn(
+                      TOOL_ICON_BUTTON_CLASS,
+                      "h-8 w-8 rounded-none border-0 bg-transparent [&_svg]:size-4",
+                    )}
+                    onClick={() => void handleCopyViewSettings()}
+                  >
+                    <Copy aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Copy view settings</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Paste view settings"
+                    className={cn(
+                      TOOL_ICON_BUTTON_CLASS,
+                      "h-8 w-8 rounded-none border-0 border-l border-foreground/10 bg-transparent [&_svg]:size-4",
+                    )}
+                    onClick={() => void handlePasteViewSettings()}
+                  >
+                    <ClipboardPaste aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Paste view settings</TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
+
+          {viewSettingsMessage ? (
+            <div className="pointer-events-none absolute right-14 top-14 z-30 max-w-[min(20rem,calc(100vw-6rem))] rounded-lg border border-foreground/10 bg-card/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm shadow-foreground/5 backdrop-blur-xl backdrop-saturate-150">
+              {viewSettingsMessage}
+            </div>
+          ) : null}
+
+          {isInspectorOpen ? null : (
+            <ViewAxisRotationControl onRotate={handleCameraScreenAxisRotation} />
+          )}
+
           <ViewControlRail
             className={cn(isInspectorOpen ? "max-[760px]:hidden" : null)}
             interactionLocked={viewState.interactionLocked}

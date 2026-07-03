@@ -6,9 +6,12 @@ import {
 import type {
   CrystalCameraPrimaryDirection,
   CrystalCameraState,
-  InteractionMode,
   VectorTuple,
 } from "../model";
+import type {
+  InteractionMode,
+  PreviewViewState,
+} from "../model/viewState";
 export {
   BASE_ORBIT_DRAG_SENSITIVITY,
   BASE_TRACKBALL_DRAG_SENSITIVITY,
@@ -47,23 +50,15 @@ export {
   snapZoomSliderPosition,
   viewScaleToSliderPosition,
   type InteractionMode,
+  type PreviewViewState,
 } from "../model/viewState";
 import {
   clampDragSensitivity,
   DEFAULT_DRAG_SENSITIVITY,
   clampLightStrength,
   DEFAULT_LIGHT_STRENGTH,
+  DEFAULT_VIEW_SCALE,
 } from "../model/viewState";
-
-export interface PreviewViewState {
-  camera: CrystalCameraState;
-  dragSensitivity: number;
-  interactionLocked: boolean;
-  interactionMode: InteractionMode;
-  lightStrength: number;
-  resetCounter: number;
-  showFpsOverlay: boolean;
-}
 
 export function createPreviewViewState(cellVectors: VectorTuple[] = []): PreviewViewState {
   return {
@@ -74,6 +69,7 @@ export function createPreviewViewState(cellVectors: VectorTuple[] = []): Preview
     lightStrength: DEFAULT_LIGHT_STRENGTH,
     resetCounter: 0,
     showFpsOverlay: false,
+    viewScale: DEFAULT_VIEW_SCALE,
   };
 }
 

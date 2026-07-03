@@ -461,6 +461,96 @@ describe("settings", () => {
     expect(scene.polyhedra).toHaveLength(4);
   });
 
+  test("expands the visible scene for supercell display", () => {
+    const scene = sceneWithPeriodicImages();
+    const visibleScene = visibleSceneForComponents(scene, {
+      ...createDefaultComponentVisibility(scene),
+      boundaryAtoms: false,
+      oneHopBondedAtoms: false,
+      supercell: {
+        ...createDefaultComponentVisibility(scene).supercell,
+        a: 2,
+      },
+    });
+
+    expect(visibleScene?.cell.vectors[0]).toEqual([2, 0, 0]);
+    expect(visibleScene?.cell.vectors[1]).toEqual([0, 1, 0]);
+    expect(visibleScene?.atoms.map((atom) => atom.id)).toEqual([
+      "Na-0",
+      "Cl-1",
+      "Na-0-supercell-1-0-0",
+      "Cl-1-supercell-1-0-0",
+    ]);
+    expect(visibleScene?.atoms[0]?.fractionalPosition).toEqual([0, 0, 0]);
+    expect(visibleScene?.atoms[2]?.fractionalPosition).toEqual([0.5, 0, 0]);
+    expect(visibleScene?.atoms[0]?.position).toEqual([0, 0, 0]);
+    expect(visibleScene?.atoms[2]?.position).toEqual([1, 0, 0]);
+    expect(bondAtomIds(visibleScene)).toEqual([
+      "Na-0--Cl-1",
+      "Na-0-supercell-1-0-0--Cl-1-supercell-1-0-0",
+    ]);
+  });
+
+  test("expands the visible scene with a matrix supercell", () => {
+    const scene = sceneForMatrixSupercell();
+    const visibleScene = visibleSceneForComponents(scene, {
+      ...createDefaultComponentVisibility(scene),
+      supercell: {
+        ...createDefaultComponentVisibility(scene).supercell,
+        matrix: [
+          [1, 1, 0],
+          [0, 2, 0],
+          [0, 0, 1],
+        ],
+        mode: "matrix",
+      },
+    });
+
+    expect(visibleScene?.cell.vectors).toEqual([
+      [1, 0, 0],
+      [1, 2, 0],
+      [0, 0, 1],
+    ]);
+    expect(visibleScene?.atoms.map((atom) => atom.id)).toEqual([
+      "Na-0",
+      "Cl-1",
+      "Na-0-supercell-1-1-0",
+      "Cl-1-supercell-1-1-0",
+    ]);
+    expect(visibleScene?.atoms[1]?.fractionalPosition).toEqual([0.25, 0.25, 0]);
+    expect(visibleScene?.atoms[3]?.position).toEqual([1.5, 1.5, 0]);
+    expect(bondAtomIds(visibleScene)).toEqual([
+      "Na-0--Cl-1",
+      "Na-0-supercell-1-1-0--Cl-1-supercell-1-1-0",
+    ]);
+  });
+
+  test("applies unimodular VESTA matrix changes without duplicating atoms", () => {
+    const scene = sceneForMatrixSupercell();
+    const visibleScene = visibleSceneForComponents(scene, {
+      ...createDefaultComponentVisibility(scene),
+      supercell: {
+        ...createDefaultComponentVisibility(scene).supercell,
+        matrix: [
+          [1, 1, 0],
+          [2, 3, 1],
+          [0, 0, 1],
+        ],
+        mode: "matrix",
+      },
+    });
+
+    expect(visibleScene?.cell.vectors).toEqual([
+      [1, 2, 0],
+      [1, 3, 0],
+      [0, 1, 1],
+    ]);
+    expect(visibleScene?.atoms.map((atom) => atom.id)).toEqual(["Na-0", "Cl-1"]);
+    expect(visibleScene?.atoms[1]?.fractionalPosition).toEqual([0, 0.5, 0]);
+    expect(visibleScene?.atoms[1]?.position).toEqual([0.5, 0.5, 0]);
+    expect(visibleScene?.atoms[1]?.isPeriodicImage).toBe(false);
+  });
+
   test("uses a stable right safe area and a small inspector scene offset", () => {
     const safeArea = previewSafeAreaForInspector();
 
@@ -474,6 +564,72 @@ describe("settings", () => {
     expect(sceneOffsetXForInspector(true, 1200)).toBe(INSPECTOR_OPEN_SCENE_OFFSET_X_PX);
   });
 });
+
+function sceneForMatrixSupercell(): SceneSpec {
+  return {
+    atoms: [
+      matrixAtom("Na-0", "Na", [0, 0, 0]),
+      matrixAtom("Cl-1", "Cl", [0.5, 0.5, 0]),
+    ],
+    bonds: [
+      {
+        endAtomIndex: 1,
+        startAtomIndex: 0,
+        visibilityDependencies: [],
+        visibilityDependencyGroups: [],
+      },
+    ],
+    cell: {
+      vectors: [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+    },
+    polyhedra: [],
+    summary: {
+      atomCount: 2,
+      cell: {
+        a: "1",
+        alpha: "90",
+        b: "1",
+        beta: "90",
+        c: "1",
+        gamma: "90",
+      },
+      formula: "NaCl",
+      symmetry: {
+        available: false,
+        crystalSystem: null,
+        latticeSystem: null,
+        pointGroup: null,
+        pointGroupSchoenflies: null,
+        spaceGroup: null,
+        spaceGroupNumber: null,
+      },
+    },
+  };
+}
+
+function matrixAtom(
+  id: string,
+  element: string,
+  fractionalPosition: [number, number, number],
+): SceneSpec["atoms"][number] {
+  return {
+    element,
+    fractionalPosition,
+    id,
+    imageOffset: [0, 0, 0],
+    imageReasons: [],
+    isPeriodicImage: false,
+    position: fractionalPosition,
+    siteId: id,
+    siteIndex: id.endsWith("-0") ? 0 : 1,
+    visibilityDependencies: [],
+    visibilityDependencyGroups: [],
+  };
+}
 
 function sceneWithPeriodicImages(): SceneSpec {
   return {

@@ -1,6 +1,7 @@
 import {
   type CSSProperties,
   type KeyboardEvent,
+  type WheelEvent,
   type ReactNode,
   useEffect,
   useRef,
@@ -80,6 +81,18 @@ export function PercentSliderRow({
     }
   }
 
+  function handleValueWheel(event: WheelEvent<HTMLElement>) {
+    if (disabled || event.deltaY === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const direction = event.deltaY < 0 ? 1 : -1;
+    const step = event.shiftKey ? 10 : 1;
+    onValueChange(clampPercentValue(value + direction * step, min, max));
+  }
+
   return (
     <div
       className={cn(
@@ -113,6 +126,7 @@ export function PercentSliderRow({
           onPointerCancel={sliderBlur.handlePointerEnd}
           onPointerDown={sliderBlur.handlePointerDown}
           onPointerUp={sliderBlur.handlePointerEnd}
+          onWheel={handleValueWheel}
         />
         <span aria-hidden="true" className="opacity-slider-track pointer-events-none" />
         <span aria-hidden="true" className="opacity-slider-fill pointer-events-none" />
@@ -134,6 +148,7 @@ export function PercentSliderRow({
           onBlur={commitValueText}
           onChange={(event) => setValueText(event.target.value)}
           onKeyDown={handleValueKeyDown}
+          onWheel={handleValueWheel}
         />
         <span
           aria-hidden="true"
@@ -144,6 +159,10 @@ export function PercentSliderRow({
       </label>
     </div>
   );
+}
+
+export function wheelStepDirection(event: WheelEvent<HTMLElement>): number {
+  return event.deltaY < 0 ? 1 : -1;
 }
 
 export function useAutoBlurSlider() {

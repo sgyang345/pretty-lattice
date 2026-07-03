@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_DRAG_SENSITIVITY,
   DEFAULT_LIGHT_STRENGTH,
+  DEFAULT_VIEW_SCALE,
   clampDragSensitivity,
   clampLightStrength,
   clampViewScale,
@@ -28,11 +29,12 @@ import {
   snapLightStrengthSliderPosition,
   snapZoomSliderPosition,
   viewScaleToSliderPosition,
+  ZOOM_SLIDER_SNAP_POSITION,
 } from "../src/app/viewState";
 import { createDefaultCrystalCameraState } from "../src/scene/crystalCamera";
 
 describe("preview view state", () => {
-  test("defaults to Trackball at fitted zoom with unlocked interaction", () => {
+  test("defaults to Trackball at 100 percent zoom with unlocked interaction", () => {
     expect(createPreviewViewState()).toEqual({
       camera: createDefaultCrystalCameraState(),
       dragSensitivity: DEFAULT_DRAG_SENSITIVITY,
@@ -41,6 +43,7 @@ describe("preview view state", () => {
       lightStrength: DEFAULT_LIGHT_STRENGTH,
       resetCounter: 0,
       showFpsOverlay: false,
+      viewScale: DEFAULT_VIEW_SCALE,
     });
   });
 
@@ -64,13 +67,14 @@ describe("preview view state", () => {
       lightStrength: DEFAULT_LIGHT_STRENGTH,
       resetCounter: 1,
       showFpsOverlay: true,
+      viewScale: DEFAULT_VIEW_SCALE,
     });
   });
 
   test("clamps zoom at the shared 20 to 500 percent bounds", () => {
     expect(clampViewScale(0.1)).toBe(0.2);
     expect(clampViewScale(6)).toBe(5);
-    expect(clampViewScale(Number.NaN)).toBe(1);
+    expect(clampViewScale(Number.NaN)).toBe(DEFAULT_VIEW_SCALE);
   });
 
   test("clamps drag sensitivity at the shared bounds", () => {
@@ -131,22 +135,28 @@ describe("preview view state", () => {
     expect(parseLightStrengthPercentInput("not a number")).toBeNull();
   });
 
-  test("maps the logarithmic slider with 100 percent at the midpoint", () => {
+  test("maps the logarithmic slider with 100 percent at the default view scale", () => {
     expect(viewScaleToSliderPosition(0.2)).toBeCloseTo(0);
-    expect(viewScaleToSliderPosition(1)).toBeCloseTo(0.5);
+    expect(viewScaleToSliderPosition(DEFAULT_VIEW_SCALE)).toBeCloseTo(
+      ZOOM_SLIDER_SNAP_POSITION,
+    );
     expect(viewScaleToSliderPosition(5)).toBeCloseTo(1);
-    expect(sliderPositionToViewScale(0.5)).toBeCloseTo(1);
+    expect(sliderPositionToViewScale(ZOOM_SLIDER_SNAP_POSITION)).toBeCloseTo(
+      DEFAULT_VIEW_SCALE,
+    );
   });
 
-  test("snaps the zoom slider to 100 percent near the midpoint", () => {
-    expect(snapZoomSliderPosition(0.475)).toBe(0.5);
-    expect(snapZoomSliderPosition(0.525)).toBe(0.5);
-    expect(snapZoomSliderPosition(0.455)).toBe(0.455);
+  test("snaps the zoom slider to the displayed 100 percent position", () => {
+    const defaultPosition = viewScaleToSliderPosition(DEFAULT_VIEW_SCALE);
+    expect(snapZoomSliderPosition(defaultPosition - 0.025)).toBe(defaultPosition);
+    expect(snapZoomSliderPosition(defaultPosition + 0.025)).toBe(defaultPosition);
+    expect(snapZoomSliderPosition(defaultPosition - 0.045)).toBe(defaultPosition - 0.045);
   });
 
   test("parses and formats editable zoom percentages with clamping for positive values", () => {
-    expect(formatZoomPercent(1)).toBe("100");
-    expect(parseZoomPercentInput("250")).toBe(2.5);
+    expect(formatZoomPercent(DEFAULT_VIEW_SCALE)).toBe("100");
+    expect(formatZoomPercent(1.5)).toBe("200");
+    expect(parseZoomPercentInput("200")).toBe(1.5);
     expect(parseZoomPercentInput("10%")).toBe(0.2);
     expect(parseZoomPercentInput("700")).toBe(5);
     expect(parseZoomPercentInput("-10")).toBeNull();
