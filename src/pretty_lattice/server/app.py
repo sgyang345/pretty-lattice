@@ -66,9 +66,10 @@ def _resolve_static_root(
     static_root: Path | None = None,
     dev_static_fallback: bool = True,
 ) -> Path | None:
-    candidates: list[Path] = []
     if static_root is not None:
-        candidates.append(static_root)
+        return static_root if (static_root / "index.html").is_file() else None
+
+    candidates: list[Path] = []
 
     candidates.append(Path(str(resources.files("pretty_lattice") / "web_static")))
     if dev_static_fallback:

@@ -17,6 +17,10 @@ export function createAppTestHarness(App: ComponentType) {
     fetchCalls.length = 0;
     fetchResponses.length = 0;
     globalThis.fetch = (async (input, init) => {
+      if (fetchInputUrl(input).includes("/api/session-heartbeat")) {
+        return jsonResponse({ ok: true });
+      }
+
       fetchCalls.push({ input, init });
       const response = fetchResponses.shift();
       if (!response) {
@@ -71,6 +75,16 @@ export function createAppTestHarness(App: ComponentType) {
     resetFetchMock,
     structureFile,
   };
+}
+
+function fetchInputUrl(input: RequestInfo | URL): string {
+  if (input instanceof Request) {
+    return input.url;
+  }
+  if (input instanceof URL) {
+    return input.toString();
+  }
+  return input;
 }
 
 export function jsonResponse(body: unknown): Response {

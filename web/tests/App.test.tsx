@@ -1403,7 +1403,7 @@ describe("App", () => {
     await user.clear(heightInput);
     await user.type(heightInput, "1000{Enter}");
 
-    expect(widthInput.value).toBe("1084");
+    expect(widthInput.value).toBe("1496");
     expect(heightInput.value).toBe("1000");
 
     await user.click(oneXSupersampling);
@@ -1524,7 +1524,7 @@ describe("App", () => {
     const content = commonControls.querySelector("[data-slot='common-controls-content']");
     expect(content?.className).toContain("transition-[height]");
     expect(content?.className).not.toContain("h-[");
-    expect(content?.className).not.toContain("min-h");
+    expect(content?.className).toContain("min-h-0");
     const activeIndicator = commonControls.querySelector(
       "[data-slot='common-controls-active-indicator']",
     ) as HTMLElement | null;

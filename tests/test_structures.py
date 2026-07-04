@@ -1,4 +1,5 @@
 import ast
+import math
 import tomllib
 from math import dist
 from pathlib import Path
@@ -279,7 +280,39 @@ def test_scene_response_shape_excludes_renderer_visual_data() -> None:
             "latticeSystem": "cubic",
         },
     }
-    assert scene.keys() == {"cell", "atoms", "bonds", "polyhedra", "summary"}
+    assert scene.keys() == {"cell", "atoms", "bonds", "polyhedra", "brillouinZone", "summary"}
+
+
+def test_scene_response_includes_brillouin_zone_data() -> None:
+    structure = read_structure(FIXTURE_DIR / "NaCl.cif")
+
+    scene = build_scene_response(structure)
+    brillouin_zone = scene["brillouinZone"]
+
+    assert len(brillouin_zone["basis"]) == 3
+    assert brillouin_zone["faces"]
+    assert brillouin_zone["edges"]
+    assert {point["label"] for point in brillouin_zone["kpoints"]} >= {"Γ", "X", "L"}
+    assert brillouin_zone["path"]
+    gamma = next(point for point in brillouin_zone["kpoints"] if point["label"] == "Γ")
+    assert gamma["fractional"] == pytest.approx([0, 0, 0])
+    assert gamma["cartesian"] == pytest.approx([0, 0, 0])
+
+
+def test_brillouin_zone_uses_reciprocal_lattice_units() -> None:
+    structure = Structure(Lattice.cubic(2), ["Si"], [[0, 0, 0]])
+
+    scene = build_scene_response(structure)
+    brillouin_zone = scene["brillouinZone"]
+    xs = [
+        vertex[0]
+        for face in brillouin_zone["faces"]
+        for vertex in face
+    ]
+
+    assert brillouin_zone["basis"][0] == pytest.approx([math.pi, 0, 0])
+    assert min(xs) == pytest.approx(-math.pi / 2)
+    assert max(xs) == pytest.approx(math.pi / 2)
 
 
 @pytest.mark.parametrize(

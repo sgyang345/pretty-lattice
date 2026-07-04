@@ -1,5 +1,6 @@
 import {
   AlertTriangleIcon,
+  Orbit,
   ChevronsDown,
   ChevronsLeft,
   ChevronsRight,
@@ -44,6 +45,7 @@ import {
 } from "@/components/ui/tooltip";
 import { AtomDistanceCard } from "./AtomDistanceCard";
 import { AtomInspectorCard } from "./AtomInspectorCard";
+import { KPointInspectorCard } from "./KPointInspectorCard";
 import {
   loadStartupProjectFile,
   saveStartupTextFile,
@@ -62,6 +64,11 @@ import {
   LatticeScene,
   previewSafeAreaForViewport,
 } from "../scene/LatticeScene";
+import { sceneForBrillouinZoneView } from "../scene/brillouinScene";
+import {
+  selectablePointsForBrillouinZone,
+  type BrillouinSelectablePoint,
+} from "../scene/brillouinSelection";
 import { ATOM_HIGHLIGHT_PULSE_MS } from "../scene/atomHighlight";
 import { OrientationGizmo } from "../scene/OrientationGizmo";
 import {
@@ -129,6 +136,7 @@ import {
 import { downloadBlob } from "./exportFigure";
 import {
   GLASS_SURFACE_CLASS,
+  TOOL_ICON_BUTTON_ACTIVE_CLASS,
   TOOL_ICON_BUTTON_CLASS,
 } from "./surface";
 
@@ -165,6 +173,11 @@ const VIEW_SETTINGS_MESSAGE_TIMEOUT_MS = 3000;
 const ATOM_BOX_SELECTION_DRAG_THRESHOLD_PX = 4;
 const VIEW_SETTINGS_CLIPBOARD_FORMAT = "pretty-lattice-view-settings";
 const VIEW_SETTINGS_CLIPBOARD_VERSION = 1;
+const RECIPROCAL_AXIS_LABELS = {
+  a: "a*",
+  b: "b*",
+  c: "c*",
+} as const;
 
 type ClipboardViewState = Pick<
   PreviewViewState,
@@ -602,6 +615,7 @@ export function App() {
     createDefaultAtomVectorSettings(null),
   );
   const [inspectedAtomId, setInspectedAtomId] = useState<string | null>(null);
+  const [inspectedKPointIds, setInspectedKPointIds] = useState<string[]>([]);
   const [measuredAtomIds, setMeasuredAtomIds] = useState<string[]>([]);
   const [atomBoxSelection, setAtomBoxSelection] = useState<AtomBoxSelectionDrag | null>(null);
   const [pulseAtom, setPulseAtom] = useState<{ atomId: string; token: number } | null>(null);
@@ -618,6 +632,7 @@ export function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const atomBoxSelectionSnapshotRef = useRef<AtomBoxSelectionSnapshot | null>(null);
   const inspectedAtomIdRef = useRef<string | null>(null);
+  const previousBrillouinZoneViewRef = useRef(false);
   const resetLoadedPreviewStateRef = useRef<ResetLoadedPreviewState>(() => {});
   const resetLoadedPreviewStateForPreview = useCallback<ResetLoadedPreviewState>(
     (nextScene, options) => {
@@ -628,6 +643,7 @@ export function App() {
   const clearAtomSelection = useCallback(() => {
     inspectedAtomIdRef.current = null;
     setInspectedAtomId(null);
+    setInspectedKPointIds([]);
     setMeasuredAtomIds([]);
     setAtomBoxSelection(null);
     setPulseAtom(null);
@@ -691,15 +707,45 @@ export function App() {
     () => visibleSceneForComponents(scene, componentVisibility),
     [componentVisibility, scene],
   );
+  const brillouinZoneScene = useMemo(
+    () => sceneForBrillouinZoneView(visibleScene),
+    [visibleScene],
+  );
+  const isBrillouinZoneView =
+    componentVisibility.brillouinZone && brillouinZoneScene !== null;
+  const displayScene = isBrillouinZoneView ? brillouinZoneScene : visibleScene;
   const inspectedAtomInfo = useMemo(
-    () => inspectedAtomInfoForId(visibleScene, inspectedAtomId),
-    [inspectedAtomId, visibleScene],
+    () =>
+      isBrillouinZoneView
+        ? null
+        : inspectedAtomInfoForId(visibleScene, inspectedAtomId),
+    [inspectedAtomId, isBrillouinZoneView, visibleScene],
+  );
+  const inspectedKPointInfos = useMemo<BrillouinSelectablePoint[]>(
+    () => {
+      if (!isBrillouinZoneView || !displayScene?.brillouinZone) {
+        return [];
+      }
+
+      const selectablePoints = selectablePointsForBrillouinZone(displayScene.brillouinZone);
+      const selectablePointsById = new Map(
+        selectablePoints.map((point) => [point.id, point]),
+      );
+      return inspectedKPointIds.flatMap((kpointId) => {
+        const point = selectablePointsById.get(kpointId);
+        return point ? [point] : [];
+      });
+    },
+    [displayScene, inspectedKPointIds, isBrillouinZoneView],
   );
   const atomMeasurementInfo = useMemo(
-    () => atomMeasurementInfoForIds(visibleScene, measuredAtomIds),
-    [measuredAtomIds, visibleScene],
+    () =>
+      isBrillouinZoneView
+        ? null
+        : atomMeasurementInfoForIds(visibleScene, measuredAtomIds),
+    [isBrillouinZoneView, measuredAtomIds, visibleScene],
   );
-  const hasVisibleScene = visibleScene !== null;
+  const hasVisibleScene = displayScene !== null;
   const {
     cameraAnimatedCommandVersion,
     cameraCommandVersion,
@@ -734,9 +780,23 @@ export function App() {
   } = usePreviewCameraCommands({
     cameraInteractionStore,
     previewFpsStore,
-    scene,
-    visibleScene,
+    scene: displayScene,
+    visibleScene: displayScene,
   });
+  useEffect(() => {
+    if (previousBrillouinZoneViewRef.current === isBrillouinZoneView) {
+      return;
+    }
+
+    previousBrillouinZoneViewRef.current = isBrillouinZoneView;
+    clearAtomSelection();
+    resetCameraForScene(displayScene);
+  }, [
+    clearAtomSelection,
+    displayScene,
+    isBrillouinZoneView,
+    resetCameraForScene,
+  ]);
   const {
     exportError,
     exportProjectedSize,
@@ -758,7 +818,7 @@ export function App() {
     showCrystalAxisLabels,
     style,
     unitCellLineStyle,
-    visibleScene,
+    visibleScene: displayScene,
   });
   const {
     handleSceneContextMenuCapture,
@@ -913,6 +973,7 @@ export function App() {
 
     inspectedAtomIdRef.current = null;
     setInspectedAtomId(null);
+    setInspectedKPointIds([]);
     setPulseAtom((currentPulseAtom) => ({
       atomId,
       token: (currentPulseAtom?.token ?? 0) + 1,
@@ -923,7 +984,27 @@ export function App() {
     inspectedAtomIdRef.current = atomId;
     setInspectedAtomId(atomId);
     if (atomId) {
+      setInspectedKPointIds([]);
       setMeasuredAtomIds([]);
+    }
+  }, []);
+
+  const handleKPointInspect = useCallback((kpointId: string | null) => {
+    if (!kpointId) {
+      setInspectedKPointIds([]);
+      return;
+    }
+
+    setInspectedKPointIds((currentIds) =>
+      currentIds.includes(kpointId)
+        ? currentIds.filter((currentId) => currentId !== kpointId)
+        : [...currentIds, kpointId],
+    );
+    if (kpointId) {
+      inspectedAtomIdRef.current = null;
+      setInspectedAtomId(null);
+      setMeasuredAtomIds([]);
+      setPulseAtom(null);
     }
   }, []);
 
@@ -934,6 +1015,7 @@ export function App() {
 
     inspectedAtomIdRef.current = null;
     setInspectedAtomId(null);
+    setInspectedKPointIds([]);
     setMeasuredAtomIds((currentAtomIds) => {
       let nextAtomIds = [...currentAtomIds];
       for (const atomId of atomIds) {
@@ -964,6 +1046,7 @@ export function App() {
     (event: ReactPointerEvent<HTMLElement>) => {
       if (
         !hasVisibleScene ||
+        isBrillouinZoneView ||
         viewState.interactionLocked ||
         event.button !== 0 ||
         !event.ctrlKey
@@ -984,7 +1067,12 @@ export function App() {
         startY: event.clientY,
       });
     },
-    [handleScenePointerDownCapture, hasVisibleScene, viewState.interactionLocked],
+    [
+      handleScenePointerDownCapture,
+      hasVisibleScene,
+      isBrillouinZoneView,
+      viewState.interactionLocked,
+    ],
   );
 
   const handleAtomBoxSelectionPointerMoveCapture = useCallback(
@@ -1088,8 +1176,11 @@ export function App() {
   );
   const legendColorScheme = baseColorSchemeForStyle(style);
   const legendEntries = useMemo(
-    () => deriveElementLegendEntries(scene, legendColorScheme, elementColorOverrides),
-    [elementColorOverrides, legendColorScheme, scene],
+    () =>
+      isBrillouinZoneView
+        ? []
+        : deriveElementLegendEntries(scene, legendColorScheme, elementColorOverrides),
+    [elementColorOverrides, isBrillouinZoneView, legendColorScheme, scene],
   );
   const handleLegendElementColorChange = useCallback((element: string, color: string) => {
     setStyle((currentStyle) => {
@@ -1493,10 +1584,49 @@ export function App() {
       return;
     }
 
-    if (!visibleScene || !componentVisibility.atoms || !inspectedAtomInfo) {
+    if (
+      isBrillouinZoneView ||
+      !visibleScene ||
+      !componentVisibility.atoms ||
+      !inspectedAtomInfo
+    ) {
       setInspectedAtomId(null);
     }
-  }, [componentVisibility.atoms, inspectedAtomId, inspectedAtomInfo, visibleScene]);
+  }, [
+    componentVisibility.atoms,
+    inspectedAtomId,
+    inspectedAtomInfo,
+    isBrillouinZoneView,
+    visibleScene,
+  ]);
+
+  useEffect(() => {
+    if (inspectedKPointIds.length === 0) {
+      return;
+    }
+
+    if (
+      !isBrillouinZoneView ||
+      !displayScene?.brillouinZone
+    ) {
+      setInspectedKPointIds([]);
+      return;
+    }
+
+    const visibleKPointIds = new Set(
+      selectablePointsForBrillouinZone(displayScene.brillouinZone).map((point) => point.id),
+    );
+    const nextKPointIds = inspectedKPointIds.filter((kpointId) =>
+      visibleKPointIds.has(kpointId),
+    );
+    if (nextKPointIds.length !== inspectedKPointIds.length) {
+      setInspectedKPointIds(nextKPointIds);
+    }
+  }, [
+    displayScene,
+    inspectedKPointIds,
+    isBrillouinZoneView,
+  ]);
 
   useEffect(() => {
     if (measuredAtomIds.length === 0) {
@@ -1506,12 +1636,18 @@ export function App() {
     const visibleAtomIds = new Set(visibleScene?.atoms.map((atom) => atom.id) ?? []);
     if (
       !visibleScene ||
+      isBrillouinZoneView ||
       !componentVisibility.atoms ||
       measuredAtomIds.some((atomId) => !visibleAtomIds.has(atomId))
     ) {
       setMeasuredAtomIds([]);
     }
-  }, [componentVisibility.atoms, measuredAtomIds, visibleScene]);
+  }, [
+    componentVisibility.atoms,
+    isBrillouinZoneView,
+    measuredAtomIds,
+    visibleScene,
+  ]);
 
   useEffect(() => {
     if (activeCommonPanelTab !== "export") {
@@ -1545,7 +1681,7 @@ export function App() {
             onPointerUpCapture={handleAtomBoxSelectionPointerEndCapture}
             onWheelCapture={handleSceneWheelCapture}
           >
-            {visibleScene ? (
+            {displayScene ? (
               <LatticeScene
                 cameraAnimatedCommandVersion={cameraAnimatedCommandVersion}
                 cameraCommandVersion={cameraCommandVersion}
@@ -1558,6 +1694,7 @@ export function App() {
                   handleCameraControlsInteractionActiveChange
                 }
                 onAtomInspect={handleAtomInspect}
+                onKPointInspect={handleKPointInspect}
                 onAtomBoxSelectionSnapshotChange={handleAtomBoxSelectionSnapshotChange}
                 onAtomMeasure={handleAtomMeasure}
                 onAtomPulse={handleAtomPulse}
@@ -1570,14 +1707,15 @@ export function App() {
                 }
                 interactionLocked={viewState.interactionLocked}
                 interactionMode={viewState.interactionMode}
-                layoutScene={visibleScene}
+                layoutScene={displayScene}
                 resetCounter={viewState.resetCounter}
                 safeArea={previewSafeArea}
-                scene={visibleScene}
-                inspectedAtomId={inspectedAtomId}
-                measuredAtomIds={measuredAtomIds}
-                pulseAtomId={pulseAtom?.atomId ?? null}
-                pulseToken={pulseAtom?.token ?? 0}
+                scene={displayScene}
+                inspectedAtomId={isBrillouinZoneView ? null : inspectedAtomId}
+                inspectedKPointIds={inspectedKPointIds}
+                measuredAtomIds={isBrillouinZoneView ? [] : measuredAtomIds}
+                pulseAtomId={isBrillouinZoneView ? null : pulseAtom?.atomId ?? null}
+                pulseToken={isBrillouinZoneView ? 0 : pulseAtom?.token ?? 0}
                 previewMeshQuality={previewMeshQuality}
                 componentOpacity={componentOpacity}
                 dragSensitivity={viewState.dragSensitivity}
@@ -1585,14 +1723,15 @@ export function App() {
                 previewFpsStore={previewFpsStore}
                 style={style}
                 atomLabelSettings={
-                  componentVisibility.atomLabels.enabled
+                  !isBrillouinZoneView && componentVisibility.atomLabels.enabled
                     ? componentVisibility.atomLabels
                     : null
                 }
-                atomVectors={atomVectors}
-                showAtoms={componentVisibility.atoms}
+                atomVectors={isBrillouinZoneView ? null : atomVectors}
+                showAtoms={!isBrillouinZoneView && componentVisibility.atoms}
+                showBrillouinZone={isBrillouinZoneView}
                 showFpsOverlay={viewState.showFpsOverlay}
-                showUnitCell={componentVisibility.unitCell}
+                showUnitCell={!isBrillouinZoneView && componentVisibility.unitCell}
                 unitCellLineStyle={unitCellLineStyle}
               />
             ) : (
@@ -1632,10 +1771,11 @@ export function App() {
         />
       ) : null}
 
-      {visibleScene ? (
+      {displayScene ? (
         <OrientationGizmo
+          axisLabels={isBrillouinZoneView ? RECIPROCAL_AXIS_LABELS : undefined}
           cameraOrientationRef={cameraOrientationRef}
-          cellVectors={visibleScene.cell.vectors}
+          cellVectors={displayScene.cell.vectors}
           className="absolute"
           frameRequestRef={orientationGizmoFrameRequestRef}
           onAxisClick={handleGizmoAxisClick}
@@ -1669,6 +1809,12 @@ export function App() {
           info={inspectedAtomInfo}
           isInspectorOpen={isInspectorOpen}
           onClose={() => setInspectedAtomId(null)}
+        />
+      ) : inspectedKPointInfos.length > 0 ? (
+        <KPointInspectorCard
+          infos={inspectedKPointInfos}
+          isInspectorOpen={isInspectorOpen}
+          onClose={() => setInspectedKPointIds([])}
         />
       ) : null}
 
@@ -1803,6 +1949,34 @@ export function App() {
       {scene ? (
         <>
           <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Brillouin zone"
+                  aria-pressed={isBrillouinZoneView}
+                  disabled={!brillouinZoneScene}
+                  className={cn(
+                    TOOL_ICON_BUTTON_CLASS,
+                    "absolute right-32 top-4 z-30 size-8 rounded-[10px] [&_svg]:size-4",
+                    isBrillouinZoneView
+                      ? TOOL_ICON_BUTTON_ACTIVE_CLASS
+                      : "border-foreground/10 bg-card/80 backdrop-blur-xl backdrop-saturate-150",
+                  )}
+                  onClick={() => {
+                    setComponentVisibility((currentVisibility) => ({
+                      ...currentVisibility,
+                      brillouinZone: !isBrillouinZoneView,
+                    }));
+                  }}
+                >
+                  <Orbit aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Brillouin zone</TooltipContent>
+            </Tooltip>
             <div className="absolute right-14 top-4 z-30 flex h-8 overflow-hidden rounded-[10px] border border-foreground/10 bg-card/80 shadow-sm shadow-foreground/5 backdrop-blur-xl backdrop-saturate-150">
               <Tooltip>
                 <TooltipTrigger asChild>

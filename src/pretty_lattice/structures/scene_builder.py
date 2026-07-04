@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pymatgen.core import Structure
 
+import pretty_lattice.structures.brillouin as brillouin_module
 import pretty_lattice.structures.connectivity as connectivity_module
 import pretty_lattice.structures.polyhedra as polyhedra_module
 from pretty_lattice.structures.periodic_images import (
@@ -119,6 +120,16 @@ def build_scene_spec(
         "polyhedra": polyhedra,
         "summary": build_structure_summary(structure),
     }
+    if can_generate_periodic_images:
+        try:
+            scene["brillouinZone"] = brillouin_module.build_brillouin_zone(structure)
+        except Exception as exc:
+            warnings.append(
+                {
+                    "code": "brillouin-zone-analysis-failed",
+                    "message": f"Brillouin zone analysis failed: {exc}",
+                }
+            )
     if warnings:
         scene["warnings"] = warnings
 

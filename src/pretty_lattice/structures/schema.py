@@ -95,11 +95,37 @@ class AnalysisWarningSpec(TypedDict):
     message: str
 
 
+class BrillouinZoneEdgeSpec(TypedDict):
+    start: list[float]
+    end: list[float]
+
+
+class BrillouinZoneKPointSpec(TypedDict):
+    id: str
+    label: str
+    fractional: list[float]
+    cartesian: list[float]
+
+
+class BrillouinZonePathSegmentSpec(TypedDict):
+    start: str
+    end: str
+
+
+class BrillouinZoneSpec(TypedDict):
+    basis: list[list[float]]
+    faces: list[list[list[float]]]
+    edges: list[BrillouinZoneEdgeSpec]
+    kpoints: list[BrillouinZoneKPointSpec]
+    path: list[BrillouinZonePathSegmentSpec]
+
+
 class SceneSpec(TypedDict):
     cell: CellSpec
     atoms: list[AtomSpec]
     bonds: list[BondSpec]
     polyhedra: list[PolyhedronSpec]
+    brillouinZone: NotRequired[BrillouinZoneSpec]
     summary: StructureSummarySpec
     warnings: NotRequired[list[AnalysisWarningSpec]]
 

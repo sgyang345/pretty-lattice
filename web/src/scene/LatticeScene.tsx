@@ -117,6 +117,7 @@ export function LatticeScene({
   onCameraOrientationFrame,
   onCameraOrientationChange,
   onAtomInspect,
+  onKPointInspect,
   onAtomBoxSelectionSnapshotChange,
   onAtomMeasure,
   onAtomPulse,
@@ -125,6 +126,7 @@ export function LatticeScene({
   safeArea = EMPTY_SAFE_AREA,
   scene,
   inspectedAtomId = null,
+  inspectedKPointIds = [],
   measuredAtomIds = [],
   pulseAtomId = null,
   pulseToken = 0,
@@ -133,6 +135,7 @@ export function LatticeScene({
   atomLabelSettings = null,
   atomVectors = null,
   showAtoms = true,
+  showBrillouinZone = false,
   showFpsOverlay = false,
   showUnitCell = true,
   style,
@@ -158,6 +161,7 @@ export function LatticeScene({
   onCameraOrientationFrame?: () => void;
   onCameraOrientationChange?: () => void;
   onAtomInspect?: (atomId: string | null) => void;
+  onKPointInspect?: (kpointId: string | null) => void;
   onAtomBoxSelectionSnapshotChange?: (snapshot: AtomBoxSelectionSnapshot | null) => void;
   onAtomMeasure?: (atomId: string) => void;
   onAtomPulse?: (atomId: string) => void;
@@ -166,6 +170,7 @@ export function LatticeScene({
   safeArea?: PreviewSafeArea;
   scene: SceneSpec;
   inspectedAtomId?: string | null;
+  inspectedKPointIds?: string[];
   measuredAtomIds?: string[];
   pulseAtomId?: string | null;
   pulseToken?: number;
@@ -174,6 +179,7 @@ export function LatticeScene({
   atomLabelSettings?: AtomLabelSettings | null;
   atomVectors?: AtomVectorSettings | null;
   showAtoms?: boolean;
+  showBrillouinZone?: boolean;
   showFpsOverlay?: boolean;
   showUnitCell?: boolean;
   style: StyleState;
@@ -255,15 +261,18 @@ export function LatticeScene({
         meshDetail={EXPORT_SCENE_MESH_DETAIL_PRESETS[previewMeshQuality]}
         scene={scene}
         inspectedAtomId={inspectedAtomId}
+        inspectedKPointIds={inspectedKPointIds}
         measuredAtomIds={measuredAtomIds}
         interactionLocked={interactionLocked}
         onAtomInspect={onAtomInspect}
+        onKPointInspect={onKPointInspect}
         onAtomMeasure={onAtomMeasure}
         onAtomPulse={onAtomPulse}
         onLockedInteractionAttempt={onLockedInteractionAttempt}
         pulseAtomId={pulseAtomId}
         pulseToken={pulseToken}
         showAtoms={showAtoms}
+        showBrillouinZone={showBrillouinZone}
         showUnitCell={showUnitCell}
         style={style}
         unitCellLineStyle={unitCellLineStyle}

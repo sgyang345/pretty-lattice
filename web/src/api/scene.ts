@@ -8,6 +8,7 @@ export interface SceneSpec {
   atoms: AtomSpec[];
   bonds: BondSpec[];
   polyhedra: PolyhedronSpec[];
+  brillouinZone?: BrillouinZoneSpec;
   summary: StructureSummary;
   warnings?: AnalysisWarningSpec[];
 }
@@ -86,6 +87,31 @@ export interface PolyhedronSpec {
   faces: [number, number, number][];
   visibilityDependencies: VisibilityDependency[];
   visibilityDependencyGroups: VisibilityDependency[][];
+}
+
+export interface BrillouinZoneSpec {
+  basis: [number, number, number][];
+  faces: [number, number, number][][];
+  edges: BrillouinZoneEdgeSpec[];
+  kpoints: BrillouinZoneKPointSpec[];
+  path: BrillouinZonePathSegmentSpec[];
+}
+
+export interface BrillouinZoneEdgeSpec {
+  start: [number, number, number];
+  end: [number, number, number];
+}
+
+export interface BrillouinZoneKPointSpec {
+  id: string;
+  label: string;
+  fractional: [number, number, number];
+  cartesian: [number, number, number];
+}
+
+export interface BrillouinZonePathSegmentSpec {
+  start: string;
+  end: string;
 }
 
 export interface AnalysisWarningSpec {

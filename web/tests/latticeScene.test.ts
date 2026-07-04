@@ -15,17 +15,23 @@ import {
   resolveStructureMaterialFamilyForTarget,
 } from "../src/scene/materialPresetResolver";
 import {
+  computeSceneLayout,
+  previewSafeAreaForViewport,
+} from "../src/scene/sceneLayout";
+import {
   CELL_FRAME_LINE_WIDTH_PIXELS,
+  cellFrameLinePositions,
+} from "../src/scene/sceneGeometry";
+import {
   EXPORT_SCENE_MESH_DETAIL_PRESETS,
   PREVIEW_SCENE_MESH_DETAIL,
   SCENE_FOG_COLOR,
-  cellFrameLinePositions,
-  computeSceneLayout,
   createSceneFog,
+} from "../src/scene/sceneRenderSettings";
+import {
   polyhedronGeometryFromAtoms,
-  previewSafeAreaForViewport,
   twoToneBondCylinderGeometry,
-} from "../src/scene/LatticeScene";
+} from "../src/scene/structureGeometry";
 import {
   applyCameraPoseSnapshot,
   createCameraPoseSnapshot,
@@ -42,7 +48,7 @@ import {
   computeStructureExportAspectRatio,
   type StructureExportFramePlan,
 } from "../src/scene/exportFrame";
-import { structureLineWidthScale } from "../src/scene/exportRenderer";
+import { structureLineWidthScale } from "../src/scene/structureLineWidth";
 import {
   applyOrthographicFrustum,
   computeCameraFitZoom,

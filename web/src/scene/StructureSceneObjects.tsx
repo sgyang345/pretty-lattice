@@ -1,13 +1,11 @@
 import { useThree } from "@react-three/fiber";
 import { memo, useCallback, useLayoutEffect, useMemo } from "react";
-import { Fog } from "three";
 
 import type { SceneSpec } from "../api/scene";
 import type {
   AtomLabelSettings,
   AtomVectorSettings,
   ComponentOpacityState,
-  ExportMeshQuality,
   StyleState,
   UnitCellLineStyle,
 } from "../model";
@@ -23,50 +21,31 @@ import { InstancedAtoms } from "./InstancedAtoms";
 import { BatchedBonds } from "./BatchedBonds";
 import { createBondRenderItems } from "./BondRenderItems";
 import { CellFrame } from "./CellFrame";
+import { cellCenter } from "./sceneGeometry";
 import { MemoizedBatchedPolyhedra } from "./BatchedPolyhedra";
 import { AtomLabels } from "./AtomLabels";
 import { AtomVectors } from "./AtomVectors";
+import { BrillouinZone } from "./BrillouinZone";
+import {
+  BOND_TUBE_RADIAL_SEGMENTS,
+  createSceneFog,
+  type SceneMeshDetail,
+} from "./sceneRenderSettings";
 export {
   POLYHEDRON_EDGE_COLOR,
   POLYHEDRON_EDGE_OPACITY,
   POLYHEDRON_SURFACE_OPACITY,
 } from "./BatchedPolyhedra";
-
-export interface SceneMeshDetail {
-  bondRadialSegments: number;
-  sphereHeightSegments: number;
-  sphereWidthSegments: number;
-}
+export {
+  BOND_TUBE_RADIAL_SEGMENTS,
+  EXPORT_SCENE_MESH_DETAIL_PRESETS,
+  PREVIEW_SCENE_MESH_DETAIL,
+  SCENE_FOG_COLOR,
+  createSceneFog,
+  type SceneMeshDetail,
+} from "./sceneRenderSettings";
 
 export const BOND_COLOR = DEFAULT_BOND_COLOR;
-export const BOND_TUBE_RADIAL_SEGMENTS = 24;
-export const SCENE_FOG_COLOR = "#fafafa";
-const FOG_FRONT_PADDING_RATIO = 0.4;
-
-export const PREVIEW_SCENE_MESH_DETAIL: SceneMeshDetail = {
-  bondRadialSegments: 16,
-  sphereHeightSegments: 24,
-  sphereWidthSegments: 32,
-};
-
-export const EXPORT_SCENE_MESH_DETAIL_PRESETS: Record<ExportMeshQuality, SceneMeshDetail> = {
-  low: {
-    bondRadialSegments: 12,
-    sphereHeightSegments: 16,
-    sphereWidthSegments: 24,
-  },
-  medium: PREVIEW_SCENE_MESH_DETAIL,
-  high: {
-    bondRadialSegments: BOND_TUBE_RADIAL_SEGMENTS,
-    sphereHeightSegments: 32,
-    sphereWidthSegments: 48,
-  },
-  xhigh: {
-    bondRadialSegments: 32,
-    sphereHeightSegments: 48,
-    sphereWidthSegments: 72,
-  },
-};
 
 export function PreviewSceneContent({
   atomLabelSettings,
@@ -77,9 +56,11 @@ export function PreviewSceneContent({
   meshDetail,
   scene,
   inspectedAtomId,
+  inspectedKPointIds,
   measuredAtomIds,
   interactionLocked,
   onAtomInspect,
+  onKPointInspect,
   onAtomMeasure,
   onAtomPulse,
   onLockedInteractionAttempt,
@@ -87,6 +68,7 @@ export function PreviewSceneContent({
   pulseAtomId,
   pulseToken,
   showAtoms,
+  showBrillouinZone,
   showUnitCell,
   style,
   unitCellLineStyle = "solid",
@@ -100,9 +82,11 @@ export function PreviewSceneContent({
   meshDetail: SceneMeshDetail;
   scene: SceneSpec;
   inspectedAtomId: string | null;
+  inspectedKPointIds: string[];
   measuredAtomIds: string[];
   interactionLocked: boolean;
   onAtomInspect?: (atomId: string | null) => void;
+  onKPointInspect?: (kpointId: string | null) => void;
   onAtomMeasure?: (atomId: string) => void;
   onAtomPulse?: (atomId: string) => void;
   onLockedInteractionAttempt?: () => void;
@@ -110,6 +94,7 @@ export function PreviewSceneContent({
   pulseAtomId: string | null;
   pulseToken: number;
   showAtoms: boolean;
+  showBrillouinZone: boolean;
   showUnitCell: boolean;
   style: StyleState;
   unitCellLineStyle?: UnitCellLineStyle;
@@ -128,9 +113,11 @@ export function PreviewSceneContent({
         meshDetail={meshDetail}
         scene={scene}
         inspectedAtomId={inspectedAtomId}
+        inspectedKPointIds={inspectedKPointIds}
         measuredAtomIds={measuredAtomIds}
         interactionLocked={interactionLocked}
         onAtomInspect={onAtomInspect}
+        onKPointInspect={onKPointInspect}
         onAtomMeasure={onAtomMeasure}
         onAtomPulse={onAtomPulse}
         onLockedInteractionAttempt={onLockedInteractionAttempt}
@@ -138,6 +125,7 @@ export function PreviewSceneContent({
         pulseAtomId={pulseAtomId}
         pulseToken={pulseToken}
         showAtoms={showAtoms}
+        showBrillouinZone={showBrillouinZone}
         showUnitCell={showUnitCell}
         style={style}
         unitCellLineStyle={unitCellLineStyle}
@@ -194,54 +182,6 @@ export function SceneFog({
   return null;
 }
 
-export function createSceneFog(
-  cameraDistance: number,
-  span: number,
-  backOffset: number,
-  frontOffset: number,
-  amount: number,
-  start: number,
-): Fog | null {
-  const safeAmount = Number.isFinite(amount) ? amount : 0;
-  const safeStart = Number.isFinite(start) ? start : 0;
-  const normalizedAmount = Math.min(1, Math.max(0, safeAmount / 100));
-  const normalizedStart = Math.min(1, Math.max(0, safeStart / 100));
-  if (normalizedAmount <= 0) {
-    return null;
-  }
-
-  const safeSpan = Number.isFinite(span) ? Math.max(1, span) : 1;
-  const safeBackOffset = Number.isFinite(backOffset)
-    ? Math.max(0.01 * safeSpan, backOffset)
-    : 0.01 * safeSpan;
-  const safeFrontOffset = Number.isFinite(frontOffset)
-    ? Math.min(safeBackOffset, frontOffset)
-    : 0;
-  const safeCameraDistance = Number.isFinite(cameraDistance)
-    ? Math.max(0.01, cameraDistance)
-    : 0.01;
-  const frontPadding = safeSpan * FOG_FRONT_PADDING_RATIO;
-  const firstStartOffset = safeFrontOffset - frontPadding;
-  const lastStartOffset = Math.max(
-    firstStartOffset,
-    safeBackOffset - frontPadding,
-  );
-  const startOffset = lerp(
-    firstStartOffset,
-    lastStartOffset,
-    normalizedStart,
-  );
-  const near = safeCameraDistance + startOffset;
-  const back = safeCameraDistance + safeBackOffset;
-  const far = near + (back - near) / normalizedAmount;
-
-  return new Fog(SCENE_FOG_COLOR, near, far);
-}
-
-function lerp(start: number, end: number, amount: number): number {
-  return start + (end - start) * amount;
-}
-
 export function StructureSceneObjects({
   atomLabelSettings,
   atomVectors,
@@ -253,8 +193,10 @@ export function StructureSceneObjects({
   meshDetail,
   scene,
   inspectedAtomId = null,
+  inspectedKPointIds = [],
   measuredAtomIds = [],
   onAtomInspect,
+  onKPointInspect,
   onAtomMeasure,
   onAtomPulse,
   onLockedInteractionAttempt,
@@ -262,6 +204,7 @@ export function StructureSceneObjects({
   pulseAtomId = null,
   pulseToken = 0,
   showAtoms,
+  showBrillouinZone,
   showUnitCell,
   style,
   unitCellLineColor,
@@ -278,8 +221,10 @@ export function StructureSceneObjects({
   meshDetail: SceneMeshDetail;
   scene: SceneSpec;
   inspectedAtomId?: string | null;
+  inspectedKPointIds?: string[];
   measuredAtomIds?: string[];
   onAtomInspect?: (atomId: string | null) => void;
+  onKPointInspect?: (kpointId: string | null) => void;
   onAtomMeasure?: (atomId: string) => void;
   onAtomPulse?: (atomId: string) => void;
   onLockedInteractionAttempt?: () => void;
@@ -287,6 +232,7 @@ export function StructureSceneObjects({
   pulseAtomId?: string | null;
   pulseToken?: number;
   showAtoms: boolean;
+  showBrillouinZone: boolean;
   showUnitCell: boolean;
   style: StyleState;
   unitCellLineColor?: string;
@@ -317,18 +263,24 @@ export function StructureSceneObjects({
       style.bondColorMode,
     ],
   );
+  const brillouinZonePosition = useMemo(() => {
+    const center = cellCenter(scene.cell.vectors);
+    return [center.x, center.y, center.z] as VectorTuple;
+  }, [scene.cell.vectors]);
+  const isBrillouinZoneView = showBrillouinZone && !showAtoms && scene.atoms.length === 0;
   const handlePointerMissed = useCallback(() => {
     if (interactionLocked) {
       return;
     }
 
     onAtomInspect?.(null);
-  }, [interactionLocked, onAtomInspect]);
+    onKPointInspect?.(null);
+  }, [interactionLocked, onAtomInspect, onKPointInspect]);
 
   return (
     <group onPointerMissed={handlePointerMissed}>
       <group position={groupPosition}>
-        {showUnitCell ? (
+        {showUnitCell && !isBrillouinZoneView ? (
           <CellFrame
             color={unitCellLineColor}
             fog={style.fogEnabled && style.fogAffectsUnitCell}
@@ -375,6 +327,17 @@ export function StructureSceneObjects({
             radiusScale={style.atomRadius / 100}
             opacity={componentOpacity.atoms / 100}
           />
+        ) : null}
+        {showBrillouinZone && scene.brillouinZone ? (
+          <group position={brillouinZonePosition}>
+            <BrillouinZone
+              brillouinZone={scene.brillouinZone}
+              fitToSpan={!isBrillouinZoneView}
+              inspectedKPointIds={inspectedKPointIds}
+              onKPointInspect={onKPointInspect}
+              span={layoutSpan}
+            />
+          </group>
         ) : null}
         {atomVectors?.enabled ? (
           <AtomVectors

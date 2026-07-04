@@ -16,6 +16,7 @@ export interface ComponentVisibilityState {
   unitCell: boolean;
   bonds: boolean;
   polyhedra: boolean;
+  brillouinZone: boolean;
   boundaryAtoms: boolean;
   oneHopBondedAtoms: boolean;
   supercell: SupercellSettings;
@@ -59,6 +60,7 @@ export const DEFAULT_COMPONENT_VISIBILITY: ComponentVisibilityState = {
   unitCell: true,
   bonds: true,
   polyhedra: false,
+  brillouinZone: false,
   boundaryAtoms: true,
   oneHopBondedAtoms: true,
   supercell: DEFAULT_SUPERCELL_SETTINGS,

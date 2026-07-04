@@ -4,6 +4,7 @@ import { Children, isValidElement, type ReactNode } from "react";
 import { OrthographicCamera, Vector3 } from "three";
 
 import type { SceneSpec } from "../src/api/scene";
+import { DEFAULT_VIEW_SCALE } from "../src/model/viewState";
 
 class MockControls {
   enabled = true;
@@ -405,7 +406,7 @@ describe("LatticeScene camera commands", () => {
     const initialZoom = mockCamera.zoom;
     act(() => cameraInteractionStore.requestViewScale(2));
 
-    expect(mockCamera.zoom).toBeCloseTo(initialZoom * 2);
+    expect(mockCamera.zoom).toBeCloseTo(initialZoom * (2 / DEFAULT_VIEW_SCALE));
     expect(controls.updateCalls).toBe(0);
   });
 
@@ -463,7 +464,7 @@ describe("LatticeScene camera commands", () => {
     mockCamera.zoom = initialZoom * 1.006;
     act(() => latestControls?.dispatchTestEvent("change"));
     expect(viewScaleSnapshots).toHaveLength(1);
-    expect(viewScaleSnapshots[0]).toBeCloseTo(1.006);
+    expect(viewScaleSnapshots[0]).toBeCloseTo(DEFAULT_VIEW_SCALE * 1.006);
     expect(cameraInteractionStore.getViewScaleCommandSnapshot().version).toBe(
       initialCommandVersion,
     );
@@ -499,7 +500,7 @@ describe("LatticeScene camera commands", () => {
     act(() => latestFrameCallback?.());
 
     expect(viewScaleSnapshots).toHaveLength(1);
-    expect(viewScaleSnapshots[0]).toBeCloseTo(1.006);
+    expect(viewScaleSnapshots[0]).toBeCloseTo(DEFAULT_VIEW_SCALE * 1.006);
     expect(cameraInteractionStore.getViewScaleCommandSnapshot().version).toBe(
       initialCommandVersion,
     );

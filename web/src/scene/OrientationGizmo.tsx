@@ -55,6 +55,7 @@ export const ORIENTATION_GIZMO_ZOOM_PER_CANVAS_PIXEL = BASE_CAMERA_ZOOM / BASE_I
 const Y_AXIS = new Vector3(0, 1, 0);
 
 export function OrientationGizmo({
+  axisLabels,
   cameraOrientationRef,
   cellVectors,
   className,
@@ -64,6 +65,7 @@ export function OrientationGizmo({
   showLabels = true,
   style,
 }: {
+  axisLabels?: Partial<Record<OrientationGizmoAxisLabel, string>>;
   cameraOrientationRef: CameraOrientationRef;
   cellVectors: VectorTuple[];
   className?: string;
@@ -247,6 +249,7 @@ export function OrientationGizmo({
           <ResponsiveGizmoCamera />
           <OrientationGizmoScene
             axes={axes}
+            axisLabels={axisLabels}
             cameraOrientationRef={cameraOrientationRef}
             hoveredAxis={hoveredAxis}
             showLabels={showLabels}
@@ -307,11 +310,13 @@ function ResponsiveGizmoCamera() {
 
 function OrientationGizmoScene({
   axes,
+  axisLabels,
   cameraOrientationRef,
   hoveredAxis,
   showLabels,
 }: {
   axes: OrientationGizmoAxisSpec[];
+  axisLabels?: Partial<Record<OrientationGizmoAxisLabel, string>>;
   cameraOrientationRef: CameraOrientationRef;
   hoveredAxis: OrientationGizmoAxisLabel | null;
   showLabels: boolean;
@@ -332,6 +337,7 @@ function OrientationGizmoScene({
     <group ref={groupRef}>
       <OrientationGizmoAxes
         axes={axes}
+        axisLabels={axisLabels}
         hoveredAxis={hoveredAxis}
         showLabels={showLabels}
       />
@@ -341,6 +347,7 @@ function OrientationGizmoScene({
 
 export function StaticOrientationGizmoScene({
   axes,
+  axisLabels,
   cameraPose,
   labelColor = LABEL_FILL_COLOR,
   labelHaloColor = LABEL_HALO_COLOR,
@@ -348,6 +355,7 @@ export function StaticOrientationGizmoScene({
   showLabels = true,
 }: {
   axes: OrientationGizmoAxisSpec[];
+  axisLabels?: Partial<Record<OrientationGizmoAxisLabel, string>>;
   cameraPose: CameraPoseSnapshot;
   labelColor?: string;
   labelHaloColor?: string;
@@ -363,6 +371,7 @@ export function StaticOrientationGizmoScene({
     <group quaternion={rotation}>
       <OrientationGizmoAxes
         axes={axes}
+        axisLabels={axisLabels}
         hoveredAxis={null}
         labelColor={labelColor}
         labelHaloColor={labelHaloColor}
@@ -375,6 +384,7 @@ export function StaticOrientationGizmoScene({
 
 function OrientationGizmoAxes({
   axes,
+  axisLabels,
   hoveredAxis,
   labelColor = LABEL_FILL_COLOR,
   labelHaloColor = LABEL_HALO_COLOR,
@@ -382,6 +392,7 @@ function OrientationGizmoAxes({
   showLabels = true,
 }: {
   axes: OrientationGizmoAxisSpec[];
+  axisLabels?: Partial<Record<OrientationGizmoAxisLabel, string>>;
   hoveredAxis: OrientationGizmoAxisLabel | null;
   labelColor?: string;
   labelHaloColor?: string;
@@ -397,6 +408,7 @@ function OrientationGizmoAxes({
           key={axis.label}
           labelColor={labelColor}
           labelHaloColor={labelHaloColor}
+          labelText={axisLabels?.[axis.label] ?? axis.label}
           showLabelHalo={showLabelHalo}
           showLabel={showLabels}
         />
@@ -414,6 +426,7 @@ function AxisArrow({
   hovered,
   labelColor,
   labelHaloColor,
+  labelText,
   showLabelHalo,
   showLabel,
 }: {
@@ -421,6 +434,7 @@ function AxisArrow({
   hovered: boolean;
   labelColor: string;
   labelHaloColor: string;
+  labelText: string;
   showLabelHalo: boolean;
   showLabel: boolean;
 }) {
@@ -452,7 +466,7 @@ function AxisArrow({
       {showLabel ? (
         <AxisLabel
           hovered={hovered}
-          label={axis.label}
+          label={labelText}
           labelColor={labelColor}
           labelHaloColor={labelHaloColor}
           showHalo={showLabelHalo}

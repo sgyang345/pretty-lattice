@@ -79,6 +79,7 @@ export function ExportSceneContent({
         scene={scene}
         atomLabelSettings={atomLabelSettings}
         showAtoms={showAtoms}
+        showBrillouinZone={false}
         showUnitCell={showUnitCell}
         style={style}
         unitCellLineColor={unitCellLineColor}

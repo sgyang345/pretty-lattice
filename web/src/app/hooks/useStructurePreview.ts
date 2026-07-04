@@ -170,25 +170,6 @@ export function useStructurePreview({
     shouldLoadStartupStructure,
   ]);
 
-  useEffect(() => {
-    if (isStaticScenePreview || shouldLoadStartupProject || shouldLoadStartupStructure) {
-      return;
-    }
-
-    let isCurrent = true;
-
-    void loadStartupPreview(() => isCurrent);
-
-    return () => {
-      isCurrent = false;
-    };
-  }, [
-    isStaticScenePreview,
-    loadStartupPreview,
-    shouldLoadStartupProject,
-    shouldLoadStartupStructure,
-  ]);
-
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
