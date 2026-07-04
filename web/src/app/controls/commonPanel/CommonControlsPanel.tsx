@@ -56,6 +56,9 @@ const COMMON_PANEL_TABS: {
   { Icon: ImageDown, label: "Export", value: "export" },
 ];
 
+const COMMON_PANEL_VIEWPORT_MARGIN_PX = 16;
+const COMMON_PANEL_MIN_SCROLL_HEIGHT_PX = 160;
+
 export function CommonControlsPanel({
   activeTab: targetActiveTab,
   atomVectors,
@@ -119,6 +122,7 @@ export function CommonControlsPanel({
     export: null,
     style: null,
   });
+  const panelRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [hasMountedCameraTab, setHasMountedCameraTab] = useState(() => cellVectors.length > 0);
   const [tabIndicatorRect, setTabIndicatorRect] = useState<TabIndicatorRect | null>(null);
@@ -132,6 +136,26 @@ export function CommonControlsPanel({
       value === activeTab ? "1.65fr" : "0.9fr",
     ).join(" "),
   } as const;
+
+  function updateContentHeight() {
+    const contentElement = contentRef.current;
+    if (!contentElement) {
+      return;
+    }
+
+    const activeContent = contentElement.querySelector<HTMLElement>(
+      "[data-slot='tabs-content'][data-state='active']",
+    );
+    const nextHeight = activeContent?.scrollHeight ?? 0;
+    const contentTop = contentElement.getBoundingClientRect().top;
+    const availableHeight = Math.max(
+      COMMON_PANEL_MIN_SCROLL_HEIGHT_PX,
+      window.innerHeight - contentTop - COMMON_PANEL_VIEWPORT_MARGIN_PX,
+    );
+    const cappedHeight = Math.min(nextHeight, availableHeight);
+
+    setContentHeight(cappedHeight > 0 ? cappedHeight : null);
+  }
 
   useEffect(() => {
     if (cellVectors.length > 0) {
@@ -182,15 +206,6 @@ export function CommonControlsPanel({
       return;
     }
 
-    function updateContentHeight() {
-      const activeContent = contentElement?.querySelector<HTMLElement>(
-        "[data-slot='tabs-content'][data-state='active']",
-      );
-      const nextHeight = activeContent?.scrollHeight ?? 0;
-
-      setContentHeight(nextHeight > 0 ? nextHeight : null);
-    }
-
     let resizeObserver: ResizeObserver | null = null;
     const animationFrame = window.requestAnimationFrame(() => {
       updateContentHeight();
@@ -223,6 +238,14 @@ export function CommonControlsPanel({
     };
   }, [activeTab]);
 
+  useEffect(() => {
+    const animationFrame = window.requestAnimationFrame(updateContentHeight);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  });
+
   function handleTabValueChange(value: string) {
     const nextTab = value as CommonPanelTab;
     if (nextTab === activeTab) {
@@ -244,9 +267,10 @@ export function CommonControlsPanel({
   return (
     <TooltipProvider>
       <aside
+        ref={panelRef}
         aria-label="Common controls"
         className={cn(
-          "rounded-xl border px-3 py-2 shadow-xl shadow-foreground/10",
+          "flex min-h-0 flex-col rounded-xl border px-3 py-2 shadow-xl shadow-foreground/10",
           GLASS_SURFACE_CLASS,
         )}
       >
@@ -254,6 +278,7 @@ export function CommonControlsPanel({
         <Tabs
           value={activeTab}
           onValueChange={handleTabValueChange}
+          className="flex min-h-0 flex-col"
         >
           <TabsList
             className="relative grid !h-8 w-full overflow-hidden rounded-lg bg-muted/70 p-1 transition-[grid-template-columns] duration-[420ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none"
@@ -315,7 +340,7 @@ export function CommonControlsPanel({
           <div
             ref={contentRef}
             data-slot="common-controls-content"
-            className="relative overflow-hidden transition-[height] duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+            className="relative -mr-2 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain pr-3 [scrollbar-gutter:stable] transition-[height] duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
             style={contentStyle}
           >
             <TabsContent

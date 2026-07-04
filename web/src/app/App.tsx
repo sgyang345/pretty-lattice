@@ -613,7 +613,7 @@ export function App() {
     useState<CommonPanelTab>("display");
   const [cameraInteractionStore] = useState(createCameraInteractionStore);
   const [previewFpsStore] = useState(createPreviewFpsStore);
-  const [isStructureSummaryCollapsed, setIsStructureSummaryCollapsed] = useState(true);
+  const [isStructureSummaryCollapsed, setIsStructureSummaryCollapsed] = useState(false);
   const viewportSize = useViewportSize();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const atomBoxSelectionSnapshotRef = useRef<AtomBoxSelectionSnapshot | null>(null);
@@ -874,7 +874,7 @@ export function App() {
         setActiveCommonPanelTab("display");
       }
       resetLockedInteractionFeedback();
-      setIsStructureSummaryCollapsed(true);
+      setIsStructureSummaryCollapsed(nextScene === null);
       resetCameraForScene(nextScene);
     },
     [

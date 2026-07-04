@@ -239,7 +239,7 @@ export function supercellSceneForDisplay(
     return scene;
   }
 
-  const rowBasisMatrix = vestaTransformationMatrixToRowBasisMatrix(matrix);
+  const rowBasisMatrix = transformationMatrixToRowBasisMatrix(matrix);
   const inverseMatrix = invertMatrix(rowBasisMatrix);
   if (inverseMatrix === null) {
     return scene;
@@ -504,14 +504,10 @@ function combineCellVectors(
   return translatedPosition([0, 0, 0], vectors, coefficients);
 }
 
-function vestaTransformationMatrixToRowBasisMatrix(
+function transformationMatrixToRowBasisMatrix(
   matrix: SupercellMatrix,
 ): SupercellMatrix {
-  return [
-    [matrix[0][0], matrix[1][0], matrix[2][0]],
-    [matrix[0][1], matrix[1][1], matrix[2][1]],
-    [matrix[0][2], matrix[1][2], matrix[2][2]],
-  ];
+  return cloneSupercellMatrix(matrix);
 }
 
 function scaleTuple(

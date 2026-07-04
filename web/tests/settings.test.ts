@@ -498,8 +498,8 @@ describe("settings", () => {
       supercell: {
         ...createDefaultComponentVisibility(scene).supercell,
         matrix: [
-          [1, 1, 0],
-          [0, 2, 0],
+          [1, 0, 0],
+          [1, 2, 0],
           [0, 0, 1],
         ],
         mode: "matrix",
@@ -525,7 +525,7 @@ describe("settings", () => {
     ]);
   });
 
-  test("applies unimodular VESTA matrix changes without duplicating atoms", () => {
+  test("applies unimodular transformation matrix changes without duplicating atoms", () => {
     const scene = sceneForMatrixSupercell();
     const visibleScene = visibleSceneForComponents(scene, {
       ...createDefaultComponentVisibility(scene),
@@ -541,12 +541,12 @@ describe("settings", () => {
     });
 
     expect(visibleScene?.cell.vectors).toEqual([
-      [1, 2, 0],
-      [1, 3, 0],
-      [0, 1, 1],
+      [1, 1, 0],
+      [2, 3, 1],
+      [0, 0, 1],
     ]);
     expect(visibleScene?.atoms.map((atom) => atom.id)).toEqual(["Na-0", "Cl-1"]);
-    expect(visibleScene?.atoms[1]?.fractionalPosition).toEqual([0, 0.5, 0]);
+    expect(visibleScene?.atoms[1]?.fractionalPosition).toEqual([0.5, 0, 0]);
     expect(visibleScene?.atoms[1]?.position).toEqual([0.5, 0.5, 0]);
     expect(visibleScene?.atoms[1]?.isPeriodicImage).toBe(false);
   });

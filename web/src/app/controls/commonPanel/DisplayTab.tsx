@@ -46,6 +46,7 @@ import {
   atomLabelOptionsForAtoms,
   COMPONENT_OPACITY_MAX,
   createDefaultComponentOpacity,
+  DEFAULT_SUPERCELL_MATRIX,
   normalizeAtomVectorColor,
   normalizeSupercellMatrixValue,
   normalizeSupercellValue,
@@ -304,10 +305,6 @@ export function DisplayTabContent({
           Periodic images
         </h2>
         <div className="mt-1.5 flex flex-col gap-1">
-          <SupercellControls
-            settings={visibility.supercell}
-            onSettingsChange={setSupercell}
-          />
           <ImageSwitchRow
             checked={visibility.boundaryAtoms}
             label="Cell-boundary atoms"
@@ -317,6 +314,10 @@ export function DisplayTabContent({
             checked={visibility.oneHopBondedAtoms}
             label="One-hop bonded atoms"
             onCheckedChange={(checked) => setVisibility("oneHopBondedAtoms", checked)}
+          />
+          <SupercellControls
+            settings={visibility.supercell}
+            onSettingsChange={setSupercell}
           />
         </div>
       </section>
@@ -362,6 +363,22 @@ function SupercellControls({
     });
   }
 
+  function resetRepeat() {
+    onSettingsChange({
+      ...settings,
+      a: 1,
+      b: 1,
+      c: 1,
+    });
+  }
+
+  function resetMatrix() {
+    onSettingsChange({
+      ...settings,
+      matrix: DEFAULT_SUPERCELL_MATRIX.map((row) => [...row]) as SupercellMatrix,
+    });
+  }
+
   return (
     <div className="rounded-md bg-muted/35 px-1.5 py-1.5">
       <div className={cn("grid h-7 grid-cols-[minmax(5.5rem,1fr)_9.1rem] items-center gap-2 px-1.5", COMMON_PANEL_BODY_TEXT_CLASS)}>
@@ -384,35 +401,49 @@ function SupercellControls({
       </div>
 
       {settings.mode === "repeat" ? (
-        <div className={cn("mt-1 grid grid-cols-[minmax(5.5rem,1fr)_repeat(3,2.35rem)] items-center gap-1 px-1.5", COMMON_PANEL_BODY_TEXT_CLASS)}>
-          <span className="min-w-0 truncate leading-tight">Repeat</span>
-          {(["a", "b", "c"] as const).map((axis) => (
-            <span key={axis} className="text-center text-muted-foreground">
-              {axis}
-            </span>
-          ))}
+        <div className={cn("mt-1 grid grid-cols-[minmax(5.5rem,1fr)_9.1rem] items-center gap-x-2 gap-y-1 px-1.5", COMMON_PANEL_BODY_TEXT_CLASS)}>
+          <SupercellResetButton
+            ariaLabel="Reset repeat supercell counts"
+            tooltip="Reset repeat counts"
+            onClick={resetRepeat}
+          />
+          <div className="grid grid-cols-3 gap-1">
+            {(["a", "b", "c"] as const).map((axis) => (
+              <span key={axis} className="text-center text-muted-foreground">
+                {axis}
+              </span>
+            ))}
+          </div>
           <span className="min-w-0 truncate leading-tight text-muted-foreground">Count</span>
-          {(["a", "b", "c"] as const).map((axis) => (
-            <SupercellAxisInput
-              key={axis}
-              axis={axis}
-              value={settings[axis]}
-              onCommit={(value) => updateAxis(axis, value)}
-            />
-          ))}
+          <div className="grid grid-cols-3 gap-1">
+            {(["a", "b", "c"] as const).map((axis) => (
+              <SupercellAxisInput
+                key={axis}
+                axis={axis}
+                value={settings[axis]}
+                onCommit={(value) => updateAxis(axis, value)}
+              />
+            ))}
+          </div>
         </div>
       ) : (
-        <div className={cn("mt-1 grid grid-cols-[minmax(5.5rem,1fr)_repeat(3,2.35rem)] items-center gap-1 px-1.5", COMMON_PANEL_BODY_TEXT_CLASS)}>
-          <span className="min-w-0 truncate leading-tight">VESTA P</span>
-          {(["A", "B", "C"] as const).map((axis) => (
-            <span key={axis} className="text-center text-muted-foreground">
-              {axis}
-            </span>
-          ))}
+        <div className={cn("mt-1 grid grid-cols-[minmax(5.5rem,1fr)_9.1rem] items-center gap-x-2 gap-y-1 px-1.5", COMMON_PANEL_BODY_TEXT_CLASS)}>
+          <SupercellResetButton
+            ariaLabel="Reset transformation matrix"
+            tooltip="Reset transformation"
+            onClick={resetMatrix}
+          />
+          <div className="grid grid-cols-3 gap-1">
+            {(["a", "b", "c"] as const).map((axis) => (
+              <span key={axis} className="text-center text-muted-foreground">
+                {axis}
+              </span>
+            ))}
+          </div>
           {settings.matrix.map((row, rowIndex) => (
             <MatrixRowInputs
               key={rowIndex}
-              label={["a", "b", "c"][rowIndex] ?? ""}
+              label={["A", "B", "C"][rowIndex] ?? ""}
               row={row}
               onCommit={(columnIndex, value) =>
                 updateMatrix(rowIndex as 0 | 1 | 2, columnIndex, value)
@@ -422,6 +453,35 @@ function SupercellControls({
         </div>
       )}
     </div>
+  );
+}
+
+function SupercellResetButton({
+  ariaLabel,
+  onClick,
+  tooltip,
+}: {
+  ariaLabel: string;
+  onClick: () => void;
+  tooltip: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="flex min-w-0 justify-start">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={ariaLabel}
+            className={cn(TOOL_ICON_BUTTON_CLASS, "size-6 rounded-[9px] [&_svg]:size-3.25")}
+            onClick={onClick}
+          >
+            <RotateCcw aria-hidden="true" />
+          </Button>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -437,14 +497,16 @@ function MatrixRowInputs({
   return (
     <>
       <span className="min-w-0 truncate leading-tight text-muted-foreground">{label}</span>
-      {([0, 1, 2] as const).map((columnIndex) => (
-        <SupercellMatrixInput
-          key={columnIndex}
-          value={row[columnIndex]}
-          ariaLabel={`${label} supercell matrix ${columnIndex + 1}`}
-          onCommit={(value) => onCommit(columnIndex, value)}
-        />
-      ))}
+      <div className="grid grid-cols-3 gap-1">
+        {([0, 1, 2] as const).map((columnIndex) => (
+          <SupercellMatrixInput
+            key={columnIndex}
+            value={row[columnIndex]}
+            ariaLabel={`${label} supercell matrix ${columnIndex + 1}`}
+            onCommit={(value) => onCommit(columnIndex, value)}
+          />
+        ))}
+      </div>
     </>
   );
 }
@@ -470,6 +532,21 @@ function SupercellMatrixInput({
     onCommit(normalizedValue);
   }
 
+  function handleWheel(event: WheelEvent<HTMLInputElement>) {
+    if (event.deltaY === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const step = event.shiftKey ? 10 : 1;
+    const nextValue = normalizeSupercellMatrixValue(
+      value + wheelStepDirection(event) * step,
+    );
+    setText(String(nextValue));
+    onCommit(nextValue);
+  }
+
   return (
     <Input
       type="number"
@@ -482,6 +559,7 @@ function SupercellMatrixInput({
       className="h-6 rounded-md px-1 text-center font-mono text-[0.68rem] tabular-nums"
       onBlur={commitText}
       onChange={(event) => setText(event.target.value)}
+      onWheel={handleWheel}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
           event.currentTarget.blur();
@@ -517,6 +595,21 @@ function SupercellAxisInput({
     onCommit(normalizedValue);
   }
 
+  function handleWheel(event: WheelEvent<HTMLInputElement>) {
+    if (event.deltaY === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const step = event.shiftKey ? 10 : 1;
+    const nextValue = normalizeSupercellValue(
+      value + wheelStepDirection(event) * step,
+    );
+    setText(String(nextValue));
+    onCommit(nextValue);
+  }
+
   return (
     <Input
       type="number"
@@ -529,6 +622,7 @@ function SupercellAxisInput({
       className="h-6 rounded-md px-1 text-center font-mono text-[0.68rem] tabular-nums"
       onBlur={commitText}
       onChange={(event) => setText(event.target.value)}
+      onWheel={handleWheel}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
           event.currentTarget.blur();

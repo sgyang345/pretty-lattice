@@ -1874,7 +1874,7 @@ describe("App", () => {
     ).toHaveProperty("value", "1.00");
   });
 
-  test("starts with collapsed extended structure details and toggles them from the card", async () => {
+  test("starts with expanded extended structure details and toggles them from the card", async () => {
     const user = userEvent.setup();
 
     await renderLoadedStructure(user);
@@ -1886,36 +1886,36 @@ describe("App", () => {
     const detailsBody = structureCard.querySelector(
       "[data-slot='structure-summary-details-body']",
     ) as HTMLElement | null;
-    const expandButton = within(structureCard).getByRole("button", {
-      name: "Expand details",
-    });
-
-    expect(expandButton.getAttribute("aria-expanded")).toBe("false");
-    expect(detailsRegion?.className).toContain("transition-[grid-template-rows]");
-    expect(detailsRegion?.className).toContain("grid-rows-[0fr]");
-    expect(detailsBody?.className).toContain("pt-0");
-
-    await user.click(expandButton);
-
     const collapseButton = within(structureCard).getByRole("button", {
       name: "Collapse details",
     });
+
     expect(collapseButton.getAttribute("aria-expanded")).toBe("true");
+    expect(detailsRegion?.className).toContain("transition-[grid-template-rows]");
     expect(detailsRegion?.className).toContain("grid-rows-[1fr]");
     expect(detailsBody?.className).toContain("pt-2.5");
 
     await user.click(collapseButton);
 
-    expect(
-      within(structureCard)
-        .getByRole("button", { name: "Expand details" })
-        .getAttribute("aria-expanded"),
-    ).toBe("false");
+    const expandButton = within(structureCard).getByRole("button", {
+      name: "Expand details",
+    });
+    expect(expandButton.getAttribute("aria-expanded")).toBe("false");
     expect(detailsRegion?.className).toContain("grid-rows-[0fr]");
     expect(detailsBody?.className).toContain("pt-0");
+
+    await user.click(expandButton);
+
+    expect(
+      within(structureCard)
+        .getByRole("button", { name: "Collapse details" })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(detailsRegion?.className).toContain("grid-rows-[1fr]");
+    expect(detailsBody?.className).toContain("pt-2.5");
   });
 
-  test("keeps manually expanded structure details open when controls overflow the viewport", async () => {
+  test("keeps expanded structure details open when controls overflow the viewport", async () => {
     const user = userEvent.setup();
 
     await renderLoadedStructure(user);
@@ -1935,11 +1935,6 @@ describe("App", () => {
 
     try {
       const structureCard = screen.getByRole("complementary", { name: "Current structure" });
-      const expandButton = within(structureCard).getByRole("button", {
-        name: "Expand details",
-      });
-
-      await user.click(expandButton);
       fireEvent(window, new Event("resize"));
 
       await waitFor(() => {
