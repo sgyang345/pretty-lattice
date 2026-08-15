@@ -1,5 +1,6 @@
 export * from "./appearance";
 export * from "./atomLabels";
+export * from "./atomPositions";
 export * from "./atomVectors";
 export * from "./crystalCameraState";
 export * from "./displayState";

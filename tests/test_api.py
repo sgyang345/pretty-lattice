@@ -335,6 +335,87 @@ async def test_startup_file_save_endpoint_reports_existing_file(
 
 
 @pytest.mark.anyio
+async def test_startup_binary_file_save_endpoint_writes_next_to_startup_structure(
+    tmp_path: Path,
+) -> None:
+    structure_path = tmp_path / "scene.vasp"
+    structure_path.write_text((FIXTURE_DIR / "SrTiO3.cif").read_text(encoding="utf-8"))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(startup_structure_path=structure_path)),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/api/startup-binary-file",
+            content=b"png bytes",
+            headers={"x-pretty-lattice-filename": "scene.png"},
+        )
+
+    export_path = tmp_path / "scene.png"
+    assert response.status_code == 200
+    assert response.json() == {
+        "fileName": "scene.png",
+        "path": str(export_path),
+    }
+    assert export_path.read_bytes() == b"png bytes"
+
+
+@pytest.mark.anyio
+async def test_startup_binary_file_save_endpoint_reports_existing_file(
+    tmp_path: Path,
+) -> None:
+    structure_path = tmp_path / "scene.vasp"
+    structure_path.write_text((FIXTURE_DIR / "SrTiO3.cif").read_text(encoding="utf-8"))
+    export_path = tmp_path / "scene.png"
+    export_path.write_bytes(b"existing")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(startup_structure_path=structure_path)),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/api/startup-binary-file",
+            content=b"new",
+            headers={"x-pretty-lattice-filename": "scene.png"},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "fileName": "scene.png",
+        "message": f"File already exists: {export_path}",
+        "path": str(export_path),
+    }
+    assert export_path.read_bytes() == b"existing"
+
+
+@pytest.mark.anyio
+async def test_startup_binary_file_save_endpoint_overwrites_existing_file(
+    tmp_path: Path,
+) -> None:
+    structure_path = tmp_path / "scene.vasp"
+    structure_path.write_text((FIXTURE_DIR / "SrTiO3.cif").read_text(encoding="utf-8"))
+    export_path = tmp_path / "scene.png"
+    export_path.write_bytes(b"existing")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(startup_structure_path=structure_path)),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/api/startup-binary-file?overwrite=true",
+            content=b"new",
+            headers={"x-pretty-lattice-filename": "scene.png"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "fileName": "scene.png",
+        "path": str(export_path),
+    }
+    assert export_path.read_bytes() == b"new"
+
+
+@pytest.mark.anyio
 async def test_structure_preview_upload_endpoint_accepts_supported_bond_algorithm() -> None:
     payload = (FIXTURE_DIR / "SrTiO3.cif").read_bytes()
 

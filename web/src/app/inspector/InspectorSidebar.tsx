@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 
-import { PanelRight } from "lucide-react";
+import { PanelLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -88,17 +88,17 @@ export function InspectorToggle({
             aria-label={label}
             className={cn(
               TOOL_ICON_BUTTON_CLASS,
-              "absolute right-4 top-4 z-30 size-8 rounded-[10px] [&_svg]:size-4",
+              "absolute left-4 top-4 z-30 size-8 rounded-[10px] [&_svg]:size-4",
               isOpen
                 ? TOOL_ICON_BUTTON_ACTIVE_CLASS
                 : "border-foreground/10 bg-card/80 backdrop-blur-xl backdrop-saturate-150",
             )}
             onClick={() => onOpenChange(!isOpen)}
           >
-            <PanelRight aria-hidden="true" />
+            <PanelLeft aria-hidden="true" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="left">{label}</TooltipContent>
+        <TooltipContent side="right">{label}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
@@ -160,16 +160,16 @@ export function InspectorSidebar({
       aria-hidden={!isOpen}
       inert={!isOpen}
       className={cn(
-        "absolute inset-y-0 right-0 z-20 flex w-[360px] max-w-[calc(100vw-1rem)] flex-col border-l border-border bg-[#fdfdfd] text-foreground",
+        "absolute inset-y-0 left-0 z-20 flex w-[360px] max-w-[calc(100vw-1rem)] flex-col border-r border-border bg-[#fdfdfd] text-foreground",
         "transition-transform duration-[260ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
-        isOpen ? "translate-x-0" : "translate-x-full",
+        isOpen ? "translate-x-0" : "-translate-x-full",
       )}
     >
       <Tabs
         defaultValue="settings"
         className="flex min-h-0 flex-1 flex-col gap-0"
       >
-        <header className="flex h-16 shrink-0 items-start px-4 pt-4 pr-16">
+        <header className="flex h-16 shrink-0 items-start px-4 pt-4 pl-16">
           <TabsList
             variant="line"
             className="h-8 w-full justify-start rounded-none p-0"

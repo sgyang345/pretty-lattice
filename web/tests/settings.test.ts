@@ -551,12 +551,12 @@ describe("settings", () => {
     expect(visibleScene?.atoms[1]?.isPeriodicImage).toBe(false);
   });
 
-  test("uses a stable right safe area and a small inspector scene offset", () => {
+  test("uses a stable mirrored safe area and a small inspector scene offset", () => {
     const safeArea = previewSafeAreaForInspector();
 
     expect(safeArea).toBe(INSPECTOR_PREVIEW_SAFE_AREA);
-    expect(safeArea.right).toBe(176);
-    expect(safeArea.left).toBe(420);
+    expect(safeArea.right).toBe(420);
+    expect(safeArea.left).toBe(176);
     expect(safeArea.bottom).toBe(116);
     expect(safeArea.top).toBe(40);
     expect(sceneOffsetXForInspector(false, 1200)).toBe(0);

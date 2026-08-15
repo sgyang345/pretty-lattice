@@ -139,6 +139,11 @@ export interface SavedStartupTextFile {
   path: string;
 }
 
+export interface SavedStartupBinaryFile {
+  fileName: string;
+  path: string;
+}
+
 export class StartupFileExistsError extends Error {
   readonly fileName: string | null;
   readonly path: string | null;
@@ -384,6 +389,49 @@ export async function saveStartupTextFile(
   }
 
   return (await response.json()) as SavedStartupTextFile;
+}
+
+export async function saveStartupBinaryFile(
+  fileName: string,
+  blob: Blob,
+  options: { overwrite?: boolean } = {},
+): Promise<SavedStartupBinaryFile> {
+  const searchParams = new URLSearchParams();
+  if (options.overwrite === true) {
+    searchParams.set("overwrite", "true");
+  }
+  const endpoint = searchParams.size > 0
+    ? `/api/startup-binary-file?${searchParams.toString()}`
+    : "/api/startup-binary-file";
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": blob.type || "application/octet-stream",
+        "x-pretty-lattice-filename": encodeURIComponent(fileName),
+      },
+      body: blob,
+    });
+  } catch {
+    throw new StructurePreviewError(BACKEND_UNAVAILABLE_MESSAGE, "backend-unavailable");
+  }
+
+  if (!response.ok) {
+    if (response.status === 409) {
+      let detail: unknown = null;
+      try {
+        detail = (await response.json()).detail;
+      } catch {
+        detail = null;
+      }
+      throw new StartupFileExistsError(isRecord(detail) ? detail : {});
+    }
+    throw new StructurePreviewError("File could not be saved.");
+  }
+
+  return (await response.json()) as SavedStartupBinaryFile;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

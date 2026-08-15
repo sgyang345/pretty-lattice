@@ -18,7 +18,7 @@ export function orientationGizmoContainerStyle(
   return {
     bottom: Math.max(16, safeArea.bottom - 100),
     height: size,
-    left: Math.max(16, safeArea.left - 78),
+    right: Math.max(16, safeArea.right - 78),
     width: size,
   };
 }

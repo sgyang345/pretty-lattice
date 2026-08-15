@@ -233,14 +233,14 @@ export function ViewControlRail({
       <aside
         aria-label="View controls"
         className={cn(
-          "absolute left-[328px] top-4 flex w-[42px] flex-col items-center max-[760px]:bottom-[8.5rem] max-[760px]:left-auto max-[760px]:right-4 max-[760px]:top-auto",
+          "absolute right-[328px] top-4 flex w-[42px] flex-col items-center max-[760px]:bottom-[8.5rem] max-[760px]:left-4 max-[760px]:right-auto max-[760px]:top-auto",
           className,
         )}
       >
         {showFps ? (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute left-[calc(100%+14px)] top-[16px] whitespace-nowrap font-mono text-[16px] font-semibold leading-none tabular-nums text-foreground drop-shadow-[0_1px_0_rgba(255,255,255,0.9)]"
+            className="pointer-events-none absolute right-[calc(100%+14px)] top-[16px] whitespace-nowrap font-mono text-[16px] font-semibold leading-none tabular-nums text-foreground drop-shadow-[0_1px_0_rgba(255,255,255,0.9)]"
             data-testid="fps-overlay"
           >
             fps {Math.max(0, Math.round(fps))}

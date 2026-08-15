@@ -7,11 +7,11 @@ export interface PreviewSafeArea {
 
 export const INSPECTOR_PREVIEW_SAFE_AREA: PreviewSafeArea = {
   bottom: 116,
-  left: 420,
-  right: 176,
+  left: 176,
+  right: 420,
   top: 40,
 };
-export const INSPECTOR_OPEN_SCENE_OFFSET_X_PX = -122;
+export const INSPECTOR_OPEN_SCENE_OFFSET_X_PX = 122;
 export const INSPECTOR_SCENE_OFFSET_BREAKPOINT_PX = 760;
 
 export function previewSafeAreaForInspector(): PreviewSafeArea {

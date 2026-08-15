@@ -48,6 +48,7 @@ import { AtomInspectorCard } from "./AtomInspectorCard";
 import { KPointInspectorCard } from "./KPointInspectorCard";
 import {
   loadStartupProjectFile,
+  saveStartupBinaryFile,
   saveStartupTextFile,
   saveStartupProjectFile,
   shouldLoadStartupProjectFile,
@@ -125,7 +126,10 @@ import {
   type InteractionMode,
   type PreviewViewState,
   previewSafeAreaForInspector,
+  restoreAtomPositionsFromScene,
   sceneOffsetXForInspector,
+  setAtomSiteFractionalPosition,
+  translateAtomSitesFractional,
   visibleSceneForComponents,
 } from "../model";
 import {
@@ -133,7 +137,13 @@ import {
   STRUCTURE_TEXT_EXPORT_FORMATS,
   type StructureTextExportFormat,
 } from "../export/structureTextExport";
-import { downloadBlob } from "./exportFigure";
+import {
+  createFigureExportZipBlob,
+  downloadBlob,
+  downloadFigureExportFiles,
+  type FigureExportFile,
+} from "./exportFigure";
+import { exportFileStem } from "../export/fileNames";
 import {
   GLASS_SURFACE_CLASS,
   TOOL_ICON_BUTTON_ACTIVE_CLASS,
@@ -155,10 +165,11 @@ interface AtomBoxSelectionDrag {
 }
 
 interface PendingFileSaveConflict {
+  blob?: Blob;
   fileName: string;
-  kind: "project" | "structure";
+  kind: "binary" | "project" | "structure";
   path: string;
-  text: string;
+  text?: string;
   suggestedFileName: string;
 }
 
@@ -168,6 +179,7 @@ type ResetLoadedPreviewState = (
 ) => void;
 
 const SESSION_HEARTBEAT_INTERVAL_MS = 3000;
+const ATOM_POSITION_REBUILD_DEBOUNCE_MS = 350;
 const SAVE_PROJECT_MESSAGE_TIMEOUT_MS = 5000;
 const VIEW_SETTINGS_MESSAGE_TIMEOUT_MS = 3000;
 const ATOM_BOX_SELECTION_DRAG_THRESHOLD_PX = 4;
@@ -300,7 +312,7 @@ function ViewAxisRotationControl({
   return (
     <TooltipProvider>
       <div
-        className="absolute right-4 top-16 z-30 h-24 w-24"
+        className="absolute left-4 top-16 z-30 h-24 w-24"
         aria-label="View rotation dials"
       >
         <ViewCrossAxisSlider
@@ -493,7 +505,7 @@ function ViewCrossAxisSlider({
           </button>
         </div>
       </TooltipTrigger>
-      <TooltipContent side="left">Rotate around screen Z / horizontal X</TooltipContent>
+      <TooltipContent side="right">Rotate around screen Z / horizontal X</TooltipContent>
     </Tooltip>
   );
 }
@@ -631,6 +643,9 @@ export function App() {
   const viewportSize = useViewportSize();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const atomBoxSelectionSnapshotRef = useRef<AtomBoxSelectionSnapshot | null>(null);
+  const atomPositionBaselineSceneRef = useRef<SceneSpec | null>(null);
+  const atomPositionRebuildSceneRef = useRef<SceneSpec | null>(null);
+  const atomPositionRebuildTimeoutRef = useRef<number | null>(null);
   const inspectedAtomIdRef = useRef<string | null>(null);
   const previousBrillouinZoneViewRef = useRef(false);
   const resetLoadedPreviewStateRef = useRef<ResetLoadedPreviewState>(() => {});
@@ -674,11 +689,13 @@ export function App() {
     };
   }, [clearAtomSelection]);
   const handlePreviewCleared = useCallback(() => {
+    atomPositionBaselineSceneRef.current = null;
     clearAtomSelection();
     setIsInspectorOpen(false);
     setIsStructureSummaryCollapsed(true);
   }, [clearAtomSelection]);
   const handleBondAlgorithmSceneLoaded = useCallback((nextScene: SceneSpec) => {
+    atomPositionBaselineSceneRef.current = nextScene;
     clearAtomSelection();
     setPreviewMeshQuality(defaultPreviewMeshQualityForScene(nextScene));
     setUnitCellLineStyle(DEFAULT_UNIT_CELL_LINE_STYLE);
@@ -692,17 +709,26 @@ export function App() {
     errorTitle,
     handleBondAlgorithmChange,
     handleFileChange,
+    rebuildCurrentStructurePreview,
     handleResetAllSettings,
     loadProjectPreview,
     previewStatus,
     scene,
     selectedFileName,
     setErrorMessage,
+    setScene,
   } = useStructurePreview({
     onBondAlgorithmSceneLoaded: handleBondAlgorithmSceneLoaded,
     onPreviewCleared: handlePreviewCleared,
     resetLoadedPreviewState: resetLoadedPreviewStateForPreview,
   });
+  useEffect(() => {
+    return () => {
+      if (atomPositionRebuildTimeoutRef.current !== null) {
+        window.clearTimeout(atomPositionRebuildTimeoutRef.current);
+      }
+    };
+  }, []);
   const visibleScene = useMemo(
     () => visibleSceneForComponents(scene, componentVisibility),
     [componentVisibility, scene],
@@ -745,6 +771,29 @@ export function App() {
         : atomMeasurementInfoForIds(visibleScene, measuredAtomIds),
     [isBrillouinZoneView, measuredAtomIds, visibleScene],
   );
+  const selectedAtomSiteIds = useMemo(() => {
+    if (!scene) {
+      return [];
+    }
+
+    const atomById = new Map([
+      ...scene.atoms.map((atom) => [atom.id, atom] as const),
+      ...(visibleScene?.atoms.map((atom) => [atom.id, atom] as const) ?? []),
+    ]);
+    const siteIds = new Set<string>();
+    for (const atomId of [inspectedAtomId, ...measuredAtomIds]) {
+      if (!atomId) {
+        continue;
+      }
+
+      const atom = atomById.get(atomId);
+      if (atom) {
+        siteIds.add(atom.siteId);
+      }
+    }
+
+    return Array.from(siteIds);
+  }, [inspectedAtomId, measuredAtomIds, scene, visibleScene]);
   const hasVisibleScene = displayScene !== null;
   const {
     cameraAnimatedCommandVersion,
@@ -797,6 +846,61 @@ export function App() {
     isBrillouinZoneView,
     resetCameraForScene,
   ]);
+
+  const handleFigureExportFiles = useCallback(async (files: FigureExportFile[]) => {
+    if (files.length === 0) {
+      throw new Error("No export files were generated.");
+    }
+
+    const fileName =
+      files.length === 1
+        ? files[0]!.fileName
+        : `${exportFileStem(selectedFileName)}.zip`;
+    const blob =
+      files.length === 1
+        ? files[0]!.blob
+        : await createFigureExportZipBlob(files, exportFileStem(selectedFileName));
+
+    const downloadFiles = async () => {
+      await downloadFigureExportFiles(files, selectedFileName);
+      setPendingFileSaveConflict(null);
+      setSaveProjectMessage("Figure export download started.");
+    };
+    const showSavedFigure = (path: string) => {
+      setPendingFileSaveConflict(null);
+      setSaveProjectMessage(`Saved figure export: ${path}`);
+      setErrorMessage(null);
+    };
+
+    if (canSaveProjectToStartupPath) {
+      try {
+        const savedFile = await saveStartupBinaryFile(fileName, blob);
+        showSavedFigure(savedFile.path);
+        return;
+      } catch (error) {
+        if (error instanceof StartupFileExistsError) {
+          const targetPath = error.path ?? error.fileName ?? fileName;
+          setSaveProjectMessage(null);
+          setPendingFileSaveConflict({
+            blob,
+            fileName,
+            kind: "binary",
+            path: targetPath,
+            suggestedFileName: fileName,
+          });
+          return;
+        }
+        // Fall back to browser download when the local API cannot write the startup path.
+      }
+    }
+
+    await downloadFiles();
+  }, [
+    canSaveProjectToStartupPath,
+    selectedFileName,
+    setErrorMessage,
+  ]);
+
   const {
     exportError,
     exportProjectedSize,
@@ -813,6 +917,7 @@ export function App() {
     componentOpacity,
     componentVisibility,
     lightStrength: viewState.lightStrength,
+    onExportFiles: handleFigureExportFiles,
     scene,
     selectedFileName,
     showCrystalAxisLabels,
@@ -918,6 +1023,11 @@ export function App() {
       options: ResetLoadedPreviewOptions = {},
     ) => {
       setErrorMessage(null);
+      if (!options.preserveActiveCommonPanelTab && !options.preserveInspectorOpen) {
+        atomPositionBaselineSceneRef.current = nextScene;
+      } else if (nextScene === null) {
+        atomPositionBaselineSceneRef.current = null;
+      }
       resetExportState();
       clearAtomSelection();
       if (!options.preserveInspectorOpen) {
@@ -1034,6 +1144,127 @@ export function App() {
   const handleAtomMeasure = useCallback((atomId: string) => {
     toggleMeasuredAtomIds([atomId]);
   }, [toggleMeasuredAtomIds]);
+
+  const handleAtomPositionSelectionChange = useCallback(
+    (atomId: string, selected: boolean) => {
+      if (!scene) {
+        return;
+      }
+
+      const atom = scene.atoms.find((candidate) => candidate.id === atomId);
+      if (!atom) {
+        return;
+      }
+
+      inspectedAtomIdRef.current = null;
+      setInspectedAtomId(null);
+      setInspectedKPointIds([]);
+      setPulseAtom(null);
+      setMeasuredAtomIds((currentAtomIds) => {
+        const currentAtomsById = new Map(scene.atoms.map((candidate) => [candidate.id, candidate]));
+        const nextAtomIds = currentAtomIds.filter((currentAtomId) => {
+          const currentAtom = currentAtomsById.get(currentAtomId);
+          return currentAtom && currentAtom.siteId !== atom.siteId;
+        });
+
+        return selected ? [...nextAtomIds, atom.id] : nextAtomIds;
+      });
+    },
+    [scene],
+  );
+
+  const rebuildStructureFromAtomPositions = useCallback(async (sourceScene: SceneSpec) => {
+    const exportFile = createStructureTextExportFile({
+      componentVisibility: createDefaultComponentVisibility(sourceScene),
+      format: "vasp",
+      scene: sourceScene,
+      selectedFileName,
+    });
+    const rebuildFile = new File(
+      [exportFile.text],
+      exportFile.fileName.replace(/\.vasp$/i, "-positions.vasp"),
+      { type: "chemical/x-poscar" },
+    );
+
+    const rebuilt = await rebuildCurrentStructurePreview(rebuildFile);
+    if (rebuilt) {
+      setErrorMessage(null);
+    }
+  }, [
+    rebuildCurrentStructurePreview,
+    selectedFileName,
+    setErrorMessage,
+  ]);
+
+  const scheduleAtomPositionRebuild = useCallback(
+    (nextScene: SceneSpec) => {
+      atomPositionRebuildSceneRef.current = nextScene;
+      if (atomPositionRebuildTimeoutRef.current !== null) {
+        window.clearTimeout(atomPositionRebuildTimeoutRef.current);
+      }
+
+      atomPositionRebuildTimeoutRef.current = window.setTimeout(() => {
+        atomPositionRebuildTimeoutRef.current = null;
+        const sceneToRebuild = atomPositionRebuildSceneRef.current;
+        atomPositionRebuildSceneRef.current = null;
+        if (sceneToRebuild) {
+          void rebuildStructureFromAtomPositions(sceneToRebuild);
+        }
+      }, ATOM_POSITION_REBUILD_DEBOUNCE_MS);
+    },
+    [rebuildStructureFromAtomPositions],
+  );
+
+  const handleAtomPositionSetFractional = useCallback(
+    (siteId: string, fractionalPosition: [number, number, number]) => {
+      setScene((currentScene) => {
+        if (!currentScene) {
+          return currentScene;
+        }
+
+        const nextScene = setAtomSiteFractionalPosition(
+          currentScene,
+          siteId,
+          fractionalPosition,
+        );
+        scheduleAtomPositionRebuild(nextScene);
+        return nextScene;
+      });
+    },
+    [scheduleAtomPositionRebuild, setScene],
+  );
+
+  const handleAtomPositionTranslateFractional = useCallback(
+    (siteIds: string[], delta: [number, number, number]) => {
+      setScene((currentScene) => {
+        if (!currentScene) {
+          return currentScene;
+        }
+
+        const nextScene = translateAtomSitesFractional(currentScene, siteIds, delta);
+        scheduleAtomPositionRebuild(nextScene);
+        return nextScene;
+      });
+    },
+    [scheduleAtomPositionRebuild, setScene],
+  );
+
+  const handleAtomPositionReset = useCallback(() => {
+    if (atomPositionRebuildTimeoutRef.current !== null) {
+      window.clearTimeout(atomPositionRebuildTimeoutRef.current);
+      atomPositionRebuildTimeoutRef.current = null;
+    }
+    atomPositionRebuildSceneRef.current = null;
+
+    setScene((currentScene) =>
+      currentScene
+        ? restoreAtomPositionsFromScene(
+            currentScene,
+            atomPositionBaselineSceneRef.current,
+          )
+        : currentScene,
+    );
+  }, [setScene]);
 
   const handleAtomBoxSelectionSnapshotChange = useCallback(
     (snapshot: AtomBoxSelectionSnapshot | null) => {
@@ -1355,10 +1586,16 @@ export function App() {
     try {
       const savedFile =
         pendingFileSaveConflict.kind === "project"
-          ? await saveStartupProjectFile(pendingFileSaveConflict.text, { overwrite: true })
+          ? await saveStartupProjectFile(pendingFileSaveConflict.text ?? "", { overwrite: true })
+          : pendingFileSaveConflict.kind === "binary"
+            ? await saveStartupBinaryFile(
+                pendingFileSaveConflict.fileName,
+                pendingFileSaveConflict.blob ?? new Blob(),
+                { overwrite: true },
+              )
           : await saveStartupTextFile(
               pendingFileSaveConflict.fileName,
-              pendingFileSaveConflict.text,
+              pendingFileSaveConflict.text ?? "",
               { overwrite: true },
             );
       setPendingFileSaveConflict(null);
@@ -1375,15 +1612,20 @@ export function App() {
       return;
     }
 
-    downloadBlob(
-      new Blob([pendingFileSaveConflict.text], {
-        type:
-          pendingFileSaveConflict.kind === "project"
-            ? "application/json"
-            : "text/plain;charset=utf-8",
-      }),
-      pendingFileSaveConflict.suggestedFileName,
-    );
+    const blob =
+      pendingFileSaveConflict.kind === "binary"
+        ? pendingFileSaveConflict.blob
+        : new Blob([pendingFileSaveConflict.text ?? ""], {
+            type:
+              pendingFileSaveConflict.kind === "project"
+                ? "application/json"
+                : "text/plain;charset=utf-8",
+          });
+    if (!blob) {
+      return;
+    }
+
+    downloadBlob(blob, pendingFileSaveConflict.suggestedFileName);
     setPendingFileSaveConflict(null);
     setSaveProjectMessage("File download started.");
   }, [pendingFileSaveConflict]);
@@ -1820,7 +2062,7 @@ export function App() {
 
       <div
         className={cn(
-          "absolute left-4 top-4 flex w-[296px] max-w-[calc(100vw-2rem)] flex-col gap-4",
+          "absolute right-4 top-4 flex w-[296px] max-w-[calc(100vw-2rem)] flex-col gap-4",
           isInspectorOpen ? "max-[760px]:hidden" : null,
         )}
       >
@@ -1850,8 +2092,13 @@ export function App() {
               hasPolyhedra={hasPolyhedra(scene)}
               isExporting={isExporting}
               sceneAtoms={scene.atoms}
+              selectedAtomSiteIds={selectedAtomSiteIds}
               atomVectors={atomVectors}
               onActiveTabChange={setActiveCommonPanelTab}
+              onAtomPositionSelectionChange={handleAtomPositionSelectionChange}
+              onAtomPositionReset={handleAtomPositionReset}
+              onAtomPositionSetFractional={handleAtomPositionSetFractional}
+              onAtomPositionTranslateFractional={handleAtomPositionTranslateFractional}
               onAtomRadiusModelChange={(atomRadiusModel) => {
                 setStyle((currentStyle) => ({ ...currentStyle, atomRadiusModel }));
               }}
@@ -1876,7 +2123,7 @@ export function App() {
         <Alert
           className={cn(
             "absolute top-4 z-20 w-[320px] rounded-xl shadow-sm shadow-foreground/5",
-            scene ? "left-[386px]" : "left-[328px]",
+            scene ? "right-[386px]" : "right-[328px]",
             "max-[760px]:left-4 max-[760px]:right-4 max-[760px]:top-[10rem] max-[760px]:w-auto",
           )}
           onDismiss={() => setErrorMessage(null)}
@@ -1890,8 +2137,8 @@ export function App() {
       {saveProjectMessage ? (
         <Alert
           className={cn(
-            "absolute top-4 z-20 min-w-[320px] max-w-[min(720px,calc(100vw-2rem))] rounded-xl shadow-sm shadow-foreground/5",
-            scene ? "left-[386px]" : "left-[328px]",
+            "absolute top-4 z-[100] min-w-[320px] max-w-[min(720px,calc(100vw-2rem))] rounded-xl shadow-sm shadow-foreground/5",
+            scene ? "right-[386px]" : "right-[328px]",
             "max-[760px]:left-4 max-[760px]:right-4 max-[760px]:top-[10rem] max-[760px]:w-auto",
           )}
           onDismiss={() => setSaveProjectMessage(null)}
@@ -1905,8 +2152,8 @@ export function App() {
       {pendingFileSaveConflict ? (
         <Alert
           className={cn(
-            "absolute top-4 z-30 min-w-[320px] max-w-[min(760px,calc(100vw-2rem))] rounded-xl shadow-sm shadow-foreground/5",
-            scene ? "left-[386px]" : "left-[328px]",
+            "absolute top-4 z-[100] min-w-[320px] max-w-[min(760px,calc(100vw-2rem))] rounded-xl shadow-sm shadow-foreground/5",
+            scene ? "right-[386px]" : "right-[328px]",
             "max-[760px]:left-4 max-[760px]:right-4 max-[760px]:top-[10rem] max-[760px]:w-auto",
           )}
           onDismiss={handleCancelFileConflict}
@@ -1960,7 +2207,7 @@ export function App() {
                   disabled={!brillouinZoneScene}
                   className={cn(
                     TOOL_ICON_BUTTON_CLASS,
-                    "absolute right-32 top-4 z-30 size-8 rounded-[10px] [&_svg]:size-4",
+                    "absolute left-32 top-4 z-30 size-8 rounded-[10px] [&_svg]:size-4",
                     isBrillouinZoneView
                       ? TOOL_ICON_BUTTON_ACTIVE_CLASS
                       : "border-foreground/10 bg-card/80 backdrop-blur-xl backdrop-saturate-150",
@@ -1977,7 +2224,7 @@ export function App() {
               </TooltipTrigger>
               <TooltipContent side="bottom">Brillouin zone</TooltipContent>
             </Tooltip>
-            <div className="absolute right-14 top-4 z-30 flex h-8 overflow-hidden rounded-[10px] border border-foreground/10 bg-card/80 shadow-sm shadow-foreground/5 backdrop-blur-xl backdrop-saturate-150">
+            <div className="absolute left-14 top-4 z-30 flex h-8 overflow-hidden rounded-[10px] border border-foreground/10 bg-card/80 shadow-sm shadow-foreground/5 backdrop-blur-xl backdrop-saturate-150">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -2018,7 +2265,7 @@ export function App() {
           </TooltipProvider>
 
           {viewSettingsMessage ? (
-            <div className="pointer-events-none absolute right-14 top-14 z-30 max-w-[min(20rem,calc(100vw-6rem))] rounded-lg border border-foreground/10 bg-card/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm shadow-foreground/5 backdrop-blur-xl backdrop-saturate-150">
+            <div className="pointer-events-none absolute left-14 top-14 z-30 max-w-[min(20rem,calc(100vw-6rem))] rounded-lg border border-foreground/10 bg-card/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm shadow-foreground/5 backdrop-blur-xl backdrop-saturate-150">
               {viewSettingsMessage}
             </div>
           ) : null}

@@ -29,10 +29,10 @@ export function KPointInspectorCard({
     <aside
       aria-label="Selected k-points"
       className={cn(
-        "absolute bottom-4 right-16 z-30 max-h-[min(50vh,22rem)] w-fit max-w-[min(460px,calc(100vw-2rem))] overflow-y-auto rounded-xl border px-2.5 py-2 font-mono text-xs shadow-xl shadow-foreground/10",
-        "transition-[right] duration-[260ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
-        "max-[760px]:bottom-4 max-[760px]:right-4",
-        isInspectorOpen ? "min-[761px]:right-[376px]" : null,
+        "absolute bottom-4 left-16 z-30 max-h-[min(50vh,22rem)] w-fit max-w-[min(460px,calc(100vw-2rem))] overflow-y-auto rounded-xl border px-2.5 py-2 font-mono text-xs shadow-xl shadow-foreground/10",
+        "transition-[left] duration-[260ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+        "max-[760px]:bottom-4 max-[760px]:left-4",
+        isInspectorOpen ? "min-[761px]:left-[376px]" : null,
         GLASS_SURFACE_CLASS,
       )}
     >

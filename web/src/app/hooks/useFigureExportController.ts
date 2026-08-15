@@ -10,7 +10,7 @@ import { createCameraPoseSnapshot } from "../../scene/cameraPose";
 import { computeStructureExportProjectedSize } from "../../scene/exportFrame";
 import {
   createFigureExportFiles,
-  downloadFigureExportFiles,
+  type FigureExportFile,
 } from "../exportFigure";
 import {
   type AtomVectorSettings,
@@ -31,6 +31,7 @@ interface UseFigureExportControllerOptions {
   componentVisibility: ComponentVisibilityState;
   lightStrength: number;
   scene: SceneSpec | null;
+  onExportFiles: (files: FigureExportFile[]) => Promise<void>;
   selectedFileName: string | null;
   showCrystalAxisLabels: boolean;
   style: StyleState;
@@ -44,6 +45,7 @@ export function useFigureExportController({
   componentOpacity,
   componentVisibility,
   lightStrength,
+  onExportFiles,
   scene,
   selectedFileName,
   showCrystalAxisLabels,
@@ -157,7 +159,7 @@ export function useFigureExportController({
         style,
         unitCellLineStyle,
       });
-      await downloadFigureExportFiles(exportFiles, selectedFileName);
+      await onExportFiles(exportFiles);
     } catch (error) {
       setExportError(
         error instanceof Error
@@ -174,6 +176,7 @@ export function useFigureExportController({
     componentVisibility,
     isExporting,
     lightStrength,
+    onExportFiles,
     prepareExportSettings,
     scene,
     selectedFileName,

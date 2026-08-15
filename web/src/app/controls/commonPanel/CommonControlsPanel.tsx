@@ -72,6 +72,11 @@ export function CommonControlsPanel({
   hasPolyhedra,
   isExporting,
   sceneAtoms,
+  selectedAtomSiteIds,
+  onAtomPositionSelectionChange,
+  onAtomPositionReset,
+  onAtomPositionSetFractional,
+  onAtomPositionTranslateFractional,
   onComponentOpacityChange,
   onComponentVisibilityChange,
   onAtomRadiusModelChange,
@@ -100,6 +105,17 @@ export function CommonControlsPanel({
   hasPolyhedra: boolean;
   isExporting: boolean;
   sceneAtoms: AtomSpec[];
+  selectedAtomSiteIds: string[];
+  onAtomPositionSelectionChange: (atomId: string, selected: boolean) => void;
+  onAtomPositionReset: () => void;
+  onAtomPositionSetFractional: (
+    siteId: string,
+    fractionalPosition: [number, number, number],
+  ) => void;
+  onAtomPositionTranslateFractional: (
+    siteIds: string[],
+    delta: [number, number, number],
+  ) => void;
   onAtomRadiusModelChange: (atomRadiusModel: AtomRadiusModel) => void;
   onAtomVectorsChange: Dispatch<SetStateAction<AtomVectorSettings>>;
   onCameraPrimaryChange: (primary: CrystalCameraPrimaryDirection) => void;
@@ -346,11 +362,18 @@ export function CommonControlsPanel({
             <TabsContent
               value="camera"
               className="common-controls-keepalive-tab"
+              aria-hidden={activeTab === "camera" ? undefined : true}
               {...(hasMountedCameraTab ? { forceMount: true } : {})}
             >
               <OrientationTabContent
                 cameraState={cameraState}
                 cellVectors={cellVectors}
+                sceneAtoms={sceneAtoms}
+                selectedAtomSiteIds={selectedAtomSiteIds}
+                onAtomPositionSelectionChange={onAtomPositionSelectionChange}
+                onAtomPositionReset={onAtomPositionReset}
+                onAtomPositionSetFractional={onAtomPositionSetFractional}
+                onAtomPositionTranslateFractional={onAtomPositionTranslateFractional}
                 onCameraPrimaryChange={onCameraPrimaryChange}
                 onCameraRollPreviewChange={onCameraRollPreviewChange}
                 onCameraRollPreviewStart={onCameraRollPreviewStart}

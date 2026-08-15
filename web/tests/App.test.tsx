@@ -376,6 +376,120 @@ describe("App", () => {
     expect(fetchCalls[1]?.init).toBeUndefined();
   });
 
+  test("keeps saving to the startup path after atom position rebuilds", async () => {
+    const user = userEvent.setup();
+    const scene = sceneWithPeriodicImages();
+    window.history.replaceState(null, "", "/?startup=1");
+    queueFetchResponse(jsonResponse({ fileName: "SrTiO3.vasp", scene }));
+
+    render(<App />);
+
+    expect((await screen.findByTestId("lattice-canvas")).isConnected).toBe(true);
+
+    const commonControls = screen.getByRole("complementary", { name: "Common controls" });
+    await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
+
+    const sodiumXInput = within(commonControls).getByRole("textbox", {
+      name: "Na1 fractional x",
+    });
+    queueFetchResponse(jsonResponse(sceneWithPeriodicImages()));
+    await user.clear(sodiumXInput);
+    await user.type(sodiumXInput, "0.25{Enter}");
+
+    await waitFor(() => expect(fetchCalls).toHaveLength(2));
+    expect(fetchCalls[1]?.input).toBe("/api/structure-preview?bondAlgorithm=crystal-nn");
+
+    queueFetchResponse(
+      jsonResponse({
+        fileName: "SrTiO3.vasp",
+        path: "/tmp/SrTiO3.vasp",
+      }),
+    );
+    const structureCard = screen.getByRole("complementary", { name: "Current structure" });
+    await user.hover(within(structureCard).getByRole("button", { name: "Save file" }));
+    await user.click(await screen.findByRole("button", { name: "VASP POSCAR" }));
+
+    await waitFor(() => expect(fetchCalls).toHaveLength(3));
+    expect(fetchCalls[2]?.input).toBe("/api/startup-file");
+    expect(fetchCalls[2]?.init?.method).toBe("POST");
+    expect(JSON.parse(String(fetchCalls[2]?.init?.body))).toMatchObject({
+      fileName: "SrTiO3.vasp",
+      overwrite: false,
+    });
+  });
+
+  test("saves figure exports to the startup path by default", async () => {
+    const user = userEvent.setup();
+    const scene = sceneWithPeriodicImages();
+    window.history.replaceState(null, "", "/?startup=1");
+    queueFetchResponse(jsonResponse({ fileName: "SrTiO3.vasp", scene }));
+
+    render(<App />);
+
+    expect((await screen.findByTestId("lattice-canvas")).isConnected).toBe(true);
+    queueFetchResponse(
+      jsonResponse({
+        fileName: "NaCl.png",
+        path: "/tmp/NaCl.png",
+      }),
+    );
+
+    await openPreviewContextMenu();
+    await user.click(await screen.findByRole("menuitem", { name: "Export figure" }));
+
+    await waitFor(() => expect(exportRequests).toHaveLength(1));
+    await waitFor(() => expect(fetchCalls).toHaveLength(2));
+    expect(exportDirectDownloads).toHaveLength(0);
+    expect(fetchCalls[1]?.input).toBe("/api/startup-binary-file");
+    expect(fetchCalls[1]?.init?.method).toBe("POST");
+    expect(fetchCalls[1]?.init?.headers).toEqual({
+      "content-type": "image/png",
+      "x-pretty-lattice-filename": "NaCl.png",
+    });
+    expect(fetchCalls[1]?.init?.body).toBeInstanceOf(Blob);
+  });
+
+  test("asks before replacing existing startup figure exports", async () => {
+    const user = userEvent.setup();
+    const scene = sceneWithPeriodicImages();
+    window.history.replaceState(null, "", "/?startup=1");
+    queueFetchResponse(jsonResponse({ fileName: "SrTiO3.vasp", scene }));
+
+    render(<App />);
+
+    expect((await screen.findByTestId("lattice-canvas")).isConnected).toBe(true);
+    queueFetchResponse({
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({
+        detail: {
+          fileName: "NaCl.png",
+          path: "/tmp/NaCl.png",
+        },
+      }),
+      ok: false,
+      status: 409,
+    } as Response);
+
+    await openPreviewContextMenu();
+    await user.click(await screen.findByRole("menuitem", { name: "Export figure" }));
+
+    expect(await screen.findByText("File already exists")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Replace" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save as" })).toBeTruthy();
+
+    queueFetchResponse(
+      jsonResponse({
+        fileName: "NaCl.png",
+        path: "/tmp/NaCl.png",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Replace" }));
+
+    await waitFor(() => expect(fetchCalls).toHaveLength(3));
+    expect(fetchCalls[2]?.input).toBe("/api/startup-binary-file?overwrite=true");
+    expect(fetchCalls[2]?.init?.body).toBeInstanceOf(Blob);
+  });
+
   test("initializes uploaded structure camera controls from the uploaded cell", async () => {
     const user = userEvent.setup();
     const scene = sceneWithPeriodicImages();
@@ -663,7 +777,7 @@ describe("App", () => {
     expect(oneHopSwitch.getAttribute("aria-checked")).toBe("false");
 
     const legend = screen.getByRole("navigation", { name: "Element legend" });
-    expect(legend.getAttribute("style")).toContain("calc(50% + 122px)");
+    expect(legend.getAttribute("style")).toContain("calc(50% + -122px)");
     const inspectorButton = screen.getByRole("button", { name: "Sidebar" });
     expect(inspectorButton.getAttribute("aria-expanded")).toBe("false");
     expect(inspectorButton.className).not.toContain("tool-icon-button-active");
@@ -1635,12 +1749,14 @@ describe("App", () => {
     expect(
       within(commonControls).getByRole("button", { name: "Manual input rules" }).isConnected,
     ).toBe(true);
+    const manualInput = within(commonControls).getByRole("region", {
+      name: "Manual input",
+    });
     expect(
-      within(commonControls)
+      within(manualInput)
         .getAllByRole("textbox")
         .map((textbox) => textbox.getAttribute("aria-label")),
     ).toEqual([
-      "Roll value",
       "z a",
       "z b",
       "z c",
@@ -1678,6 +1794,31 @@ describe("App", () => {
         .closest('[data-camera-vector-row="y"]')
         ?.hasAttribute("data-primary-axis"),
     ).toBe(false);
+  });
+
+  test("rebuilds the preview from current fractional atom positions", async () => {
+    const user = userEvent.setup();
+
+    await renderLoadedStructure(user);
+    const commonControls = screen.getByRole("complementary", { name: "Common controls" });
+    await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
+
+    const sodiumXInput = within(commonControls).getByRole("textbox", {
+      name: "Na1 fractional x",
+    });
+    queueFetchResponse(jsonResponse(sceneWithPeriodicImages()));
+    await user.clear(sodiumXInput);
+    await user.type(sodiumXInput, "0.25{Enter}");
+
+    await waitFor(() => expect(fetchCalls).toHaveLength(2));
+    expect(fetchCalls[1]?.input).toBe("/api/structure-preview?bondAlgorithm=crystal-nn");
+    expect(fetchCalls[1]?.init?.headers).toEqual({
+      "content-type": "chemical/x-poscar",
+      "x-pretty-lattice-filename": "NaCl-positions.vasp",
+    });
+    const body = fetchCalls[1]?.init?.body;
+    expect(body).toBeInstanceOf(File);
+    await expect((body as File).text()).resolves.toContain("0.25  0  0  Na");
   });
 
   test("formats roll controls as zero to 360 degrees", async () => {
@@ -1795,12 +1936,14 @@ describe("App", () => {
     expect(
       within(commonControls).getByRole("button", { name: "Y Up" }).getAttribute("aria-pressed"),
     ).toBe("true");
+    const manualInput = within(commonControls).getByRole("region", {
+      name: "Manual input",
+    });
     expect(
-      within(commonControls)
+      within(manualInput)
         .getAllByRole("textbox")
         .map((textbox) => textbox.getAttribute("aria-label")),
     ).toEqual([
-      "Roll value",
       "y a",
       "y b",
       "y c",
@@ -1829,11 +1972,10 @@ describe("App", () => {
     await user.click(within(commonControls).getByRole("button", { name: "z secondary axis" }));
 
     expect(
-      within(commonControls)
+      within(manualInput)
         .getAllByRole("textbox")
         .map((textbox) => textbox.getAttribute("aria-label")),
     ).toEqual([
-      "Roll value",
       "y a",
       "y b",
       "y c",

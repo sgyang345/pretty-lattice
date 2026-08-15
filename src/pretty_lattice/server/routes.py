@@ -20,8 +20,19 @@ from pretty_lattice.structures.schema import (
 router = APIRouter()
 MAX_STRUCTURE_UPLOAD_BYTES = 1 * 1024 * 1024
 MAX_PROJECT_FILE_BYTES = 50 * 1024 * 1024
+MAX_GENERATED_FILE_BYTES = 50 * 1024 * 1024
 STRUCTURE_FILE_TOO_LARGE_MESSAGE = "File is too large to preview."
-SAFE_GENERATED_FILE_SUFFIXES = {".cif", ".prl", ".stru", ".vasp"}
+SAFE_GENERATED_FILE_SUFFIXES = {
+    ".cif",
+    ".jpg",
+    ".jpeg",
+    ".pdf",
+    ".png",
+    ".prl",
+    ".stru",
+    ".vasp",
+    ".zip",
+}
 
 
 @router.get("/health")
@@ -196,6 +207,52 @@ async def save_startup_file(request: Request) -> dict[str, str]:
     }
 
 
+@router.post("/startup-binary-file")
+async def save_startup_binary_file(
+    request: Request,
+    overwrite: bool = Query(default=False),
+) -> dict[str, str]:
+    save_directory = _startup_save_directory(request)
+    if save_directory is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "No startup file directory is available."},
+        )
+
+    file_name = _uploaded_filename(request)
+    try:
+        save_path = _safe_generated_file_path(save_directory, file_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
+
+    payload = await _generated_file_payload(request)
+    if not payload:
+        raise HTTPException(status_code=400, detail={"message": "File content is required."})
+
+    if save_path.exists() and not overwrite:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "fileName": save_path.name,
+                "message": f"File already exists: {save_path}",
+                "path": str(save_path),
+            },
+        )
+
+    try:
+        save_path.write_bytes(payload)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": f"Could not save file: {save_path}"},
+        ) from exc
+
+    return {
+        "fileName": save_path.name,
+        "path": str(save_path),
+    }
+
+
 async def _uploaded_payload(request: Request) -> bytes:
     content_length = request.headers.get("content-length")
     if content_length is not None:
@@ -212,6 +269,22 @@ async def _uploaded_payload(request: Request) -> bytes:
     payload = await request.body()
     if len(payload) > MAX_STRUCTURE_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail={"message": STRUCTURE_FILE_TOO_LARGE_MESSAGE})
+    return payload
+
+
+async def _generated_file_payload(request: Request) -> bytes:
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            upload_size = int(content_length)
+        except ValueError:
+            upload_size = None
+        if upload_size is not None and upload_size > MAX_GENERATED_FILE_BYTES:
+            raise HTTPException(status_code=413, detail={"message": "File is too large."})
+
+    payload = await request.body()
+    if len(payload) > MAX_GENERATED_FILE_BYTES:
+        raise HTTPException(status_code=413, detail={"message": "File is too large."})
     return payload
 
 

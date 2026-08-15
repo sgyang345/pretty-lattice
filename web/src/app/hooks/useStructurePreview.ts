@@ -1,8 +1,11 @@
 import {
+  type Dispatch,
+  type SetStateAction,
   type ChangeEvent,
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -69,6 +72,7 @@ export function useStructurePreview({
   const [previewSource, setPreviewSource] = useState<PreviewSource | null>(null);
   const [bondAlgorithm, setBondAlgorithm] =
     useState<BondAlgorithm>(DEFAULT_BOND_ALGORITHM);
+  const rebuildRequestIdRef = useRef(0);
 
   const loadStartupPreview = useCallback(
     async (isCurrent: () => boolean) => {
@@ -338,6 +342,50 @@ export function useStructurePreview({
     scene,
   ]);
 
+  const rebuildCurrentStructurePreview = useCallback(
+    async (file: File): Promise<boolean> => {
+      if (isStaticScenePreview) {
+        setErrorMessage(BACKEND_UNAVAILABLE_MESSAGE);
+        return false;
+      }
+
+      setPreviewStatus("loading");
+      setErrorMessage(null);
+      const requestId = rebuildRequestIdRef.current + 1;
+      rebuildRequestIdRef.current = requestId;
+
+      try {
+        const nextScene = await uploadStructurePreview(file, { bondAlgorithm });
+        if (requestId !== rebuildRequestIdRef.current) {
+          return false;
+        }
+
+        setCurrentFile(file);
+        setPreviewSource((currentPreviewSource) =>
+          currentPreviewSource === "startup" || currentPreviewSource === "startup-project"
+            ? currentPreviewSource
+            : "upload",
+        );
+        setScene(nextScene);
+        setPreviewStatus("ready");
+        return true;
+      } catch (error) {
+        if (requestId !== rebuildRequestIdRef.current) {
+          return false;
+        }
+
+        setPreviewStatus(scene ? "ready" : "error");
+        setErrorMessage(
+          isBackendUnavailablePreviewError(error)
+            ? error.message
+            : STRUCTURE_PARSE_ERROR_MESSAGE,
+        );
+        return false;
+      }
+    },
+    [bondAlgorithm, isStaticScenePreview, scene],
+  );
+
   const errorTitle = useMemo(
     () =>
       errorMessage === BACKEND_UNAVAILABLE_MESSAGE
@@ -353,6 +401,7 @@ export function useStructurePreview({
     errorTitle,
     handleBondAlgorithmChange,
     handleFileChange,
+    rebuildCurrentStructurePreview,
     handleResetAllSettings,
     isStaticScenePreview,
     loadProjectPreview,
@@ -360,5 +409,6 @@ export function useStructurePreview({
     scene,
     selectedFileName,
     setErrorMessage,
+    setScene: setScene as Dispatch<SetStateAction<SceneSpec | null>>,
   };
 }
