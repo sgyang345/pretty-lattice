@@ -13,6 +13,7 @@ import type { VectorTuple } from "./viewMath";
 
 const CELL_FRAME_DASH_SIZE = 0.08;
 const CELL_FRAME_GAP_SIZE = 0.03;
+const CELL_FRAME_RENDER_ORDER = 1000;
 
 export function CellFrame({
   color = CELL_FRAME_COLOR,
@@ -37,16 +38,18 @@ export function CellFrame({
       alphaToCoverage: true,
       color,
       dashed: lineStyle === "dashed",
+      depthTest: true,
       depthWrite: false,
       dashSize: CELL_FRAME_DASH_SIZE,
       fog,
       gapSize: CELL_FRAME_GAP_SIZE,
       linewidth: lineWidth,
       opacity,
-      transparent: opacity < 1,
+      transparent: true,
       worldUnits: false,
     });
     const line = new LineSegments2(geometry, material);
+    line.renderOrder = CELL_FRAME_RENDER_ORDER;
     if (lineStyle === "dashed") {
       material.defines.USE_DASH = "";
       material.needsUpdate = true;

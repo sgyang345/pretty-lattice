@@ -44,6 +44,20 @@ describe("Pretty Lattice project files", () => {
 
     expect(project).toEqual({
       display: {
+        chargeDensity: {
+          boundaryColor: "#6f737a",
+          boundaryFillOpacity: 0,
+          fractionalOffset: [0, 0, 0],
+          interpolationFactor: 1,
+          isoValue: 0,
+          negativeColor: "#6673ff",
+          positiveColor: "#ff5f66",
+          sectionAxis: "c",
+          sectionEnabled: false,
+          sectionOpacity: 28,
+          sectionPosition: 50,
+          surfaceMode: "both",
+        },
         opacity,
         previewMeshQuality: "high",
         showCrystalAxisLabels: true,
@@ -101,6 +115,29 @@ describe("Pretty Lattice project files", () => {
       project,
     );
     expect(project.view.viewScale).toBe(DEFAULT_VIEW_SCALE);
+  });
+
+  test("fills missing projection mode from older project files", () => {
+    const scene = minimalScene();
+    const project = createPrettyLatticeProject({
+      bondAlgorithm: "minimum-distance",
+      componentOpacity: createDefaultComponentOpacity(),
+      componentVisibility: createDefaultComponentVisibility(scene),
+      exportSettings: createDefaultExportSettings(),
+      previewMeshQuality: "medium",
+      scene,
+      selectedFileName: "STRU",
+      showCrystalAxisLabels: false,
+      style: createDefaultStyle(),
+      unitCellLineStyle: "solid",
+      viewState: createPreviewViewState(scene.cell.vectors),
+    });
+    const rawProject = JSON.parse(prettyLatticeProjectJson(project));
+    delete rawProject.view.projectionMode;
+
+    expect(
+      parsePrettyLatticeProjectFile(JSON.stringify(rawProject)).view.projectionMode,
+    ).toBe("parallel");
   });
 
   test("fills missing supercell display settings from older project files", () => {

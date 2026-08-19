@@ -11,10 +11,12 @@ import { exportFileStem } from "./fileNames";
 export async function createCombinedExportFile({
   atomVectors,
   cameraOrientationRef,
+  chargeDensityDisplay,
   componentOpacity,
   componentVisibility,
   fileName,
   lightStrength,
+  projectionMode,
   scene,
   settings,
   showCrystalAxisLabels,
@@ -22,10 +24,15 @@ export async function createCombinedExportFile({
   unitCellLineStyle,
 }: CreateFigureExportOptions): Promise<FigureExportFile> {
   const visibleScene = visibleSceneForComponents(scene, componentVisibility);
-  const cameraPose = createCameraPoseSnapshot(cameraOrientationRef.current);
+  const cameraPose = createCameraPoseSnapshot(
+    cameraOrientationRef.current,
+    [0, 0, 0],
+    projectionMode,
+  );
   const rasterImage = await renderCombinedExportRaster({
     atomVectors,
     cameraPose,
+    chargeDensityDisplay,
     componentOpacity,
     componentVisibility,
     lightStrength,

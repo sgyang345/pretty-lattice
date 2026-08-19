@@ -1,10 +1,12 @@
-import { Ruler, X } from "lucide-react";
+import { Copy, Ruler, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import {
+  atomMeasurementCopyText,
   atomVectorActualInfoForAtom,
   formatAtomAngleForDisplay,
   formatAtomCoordinateForDisplay,
@@ -21,6 +23,10 @@ import {
   type AtomVectorSettings,
 } from "../model";
 
+const ATOM_DISTANCE_COPY_MESSAGE_TIMEOUT_MS = 1800;
+const ATOM_DISTANCE_COPY_BUTTON_CLASS =
+  "size-7 rounded-[9px] border border-foreground/20 bg-background/95 text-foreground shadow-sm shadow-foreground/10 hover:border-foreground/30 hover:bg-accent hover:text-accent-foreground [&_svg]:size-3.5";
+
 export function AtomDistanceCard({
   atomVectors,
   info,
@@ -34,6 +40,42 @@ export function AtomDistanceCard({
 }) {
   const hasDistance = info.secondAtom && info.delta && info.distance !== null;
   const hasAngle = info.thirdAtom && info.angleDegrees !== null;
+  const [copyState, setCopyState] = useState<"copied" | "error" | null>(null);
+  const copyMessageTimeoutRef = useRef<number | null>(null);
+  const handleCopy = useCallback(async () => {
+    if (copyMessageTimeoutRef.current !== null) {
+      window.clearTimeout(copyMessageTimeoutRef.current);
+      copyMessageTimeoutRef.current = null;
+    }
+
+    if (!navigator.clipboard?.writeText) {
+      setCopyState("error");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(atomMeasurementCopyText(info, atomVectors));
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  }, [atomVectors, info]);
+
+  useEffect(() => {
+    if (!copyState) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCopyState(null);
+      copyMessageTimeoutRef.current = null;
+    }, ATOM_DISTANCE_COPY_MESSAGE_TIMEOUT_MS);
+    copyMessageTimeoutRef.current = timeoutId;
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [copyState]);
 
   return (
     <aside
@@ -46,7 +88,7 @@ export function AtomDistanceCard({
         GLASS_SURFACE_CLASS,
       )}
     >
-      <div className="grid h-7 grid-cols-[1.5rem_0.875rem_minmax(8rem,1fr)_1.5rem] items-center gap-2">
+      <div className="relative grid h-7 grid-cols-[1.5rem_0.875rem_minmax(0,1fr)_1.75rem] items-center gap-2">
         <TooltipProvider delayDuration={500}>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -69,6 +111,36 @@ export function AtomDistanceCard({
         <span className="min-w-0 whitespace-nowrap text-[0.78rem] font-semibold text-foreground">
           {measurementTitle(info)}
         </span>
+        <div className="flex justify-end">
+          <TooltipProvider delayDuration={500}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Copy all atom measurement info"
+                  className={cn(TOOL_ICON_BUTTON_CLASS, ATOM_DISTANCE_COPY_BUTTON_CLASS)}
+                  onClick={() => void handleCopy()}
+                >
+                  <Copy aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Copy all atom measurement info</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+        {copyState ? (
+          <span
+            role="status"
+            className={cn(
+              "absolute right-0 top-full z-10 mt-1 rounded-md border bg-background/95 px-1.5 py-1 text-[0.64rem] font-medium leading-none shadow-sm",
+              copyState === "copied" ? "border-foreground/15 text-foreground" : "border-destructive/25 text-destructive",
+            )}
+          >
+            {copyState === "copied" ? "Copied" : "Copy failed"}
+          </span>
+        ) : null}
       </div>
 
       <div className="mt-2 min-h-0 overflow-y-auto pr-1">

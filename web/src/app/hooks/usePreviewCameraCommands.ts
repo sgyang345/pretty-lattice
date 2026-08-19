@@ -33,8 +33,10 @@ import {
   setPreviewInteractionLocked,
   setPreviewInteractionMode,
   setPreviewLightStrength,
+  setPreviewProjectionMode,
   setPreviewShowFpsOverlay,
   type InteractionMode,
+  type ProjectionMode,
   type PreviewViewState,
 } from "../viewState";
 
@@ -194,6 +196,14 @@ export function usePreviewCameraCommands({
       setPreviewLightStrength(currentViewState, lightStrength),
     );
   }, []);
+
+  const handleProjectionModeChange = useCallback((projectionMode: ProjectionMode) => {
+    clearCameraDerivedUiFreezeState();
+    setViewState((currentViewState) =>
+      setPreviewProjectionMode(currentViewState, projectionMode),
+    );
+    setCameraCommandVersion((version) => version + 1);
+  }, [clearCameraDerivedUiFreezeState]);
 
   const handleInteractionLockedChange = useCallback((interactionLocked: boolean) => {
     setViewState((currentViewState) =>
@@ -401,13 +411,13 @@ export function usePreviewCameraCommands({
   );
 
   const handleGizmoAxisClick = useCallback(
-    (axis: CrystalAxisLabel) => {
+    (axis: CrystalAxisLabel, direction: 1 | -1 = 1) => {
       if (!visibleScene) {
         return;
       }
 
       startAnimatedCameraCommand(
-        stateWithDirectAxis(visibleScene.cell.vectors, viewState.camera, axis),
+        stateWithDirectAxis(visibleScene.cell.vectors, viewState.camera, axis, direction),
       );
     },
     [startAnimatedCameraCommand, viewState.camera, visibleScene],
@@ -479,6 +489,7 @@ export function usePreviewCameraCommands({
     handleInteractionLockedChange,
     handleInteractionModeChange,
     handleLightStrengthChange,
+    handleProjectionModeChange,
     handleResetView,
     handleShowFpsOverlayChange,
     isCameraCommandAnimationActive,

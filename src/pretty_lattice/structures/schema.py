@@ -90,6 +90,25 @@ class PolyhedronSpec(TypedDict):
     visibilityDependencyGroups: list[list[VisibilityDependency]]
 
 
+class ChargeDensitySpec(TypedDict):
+    source: str
+    grid: list[int]
+    dataGrid: list[int]
+    dataOrigin: list[int]
+    dataStride: list[int]
+    mode: str
+    unit: str
+    isoValue: float
+    min: float
+    max: float
+    sampleCount: int
+    scalarValues: list[float]
+    totalCandidateCount: int
+    positions: list[list[float]]
+    values: list[float]
+    voxelSize: float
+
+
 class AnalysisWarningSpec(TypedDict):
     code: str
     message: str
@@ -125,6 +144,7 @@ class SceneSpec(TypedDict):
     atoms: list[AtomSpec]
     bonds: list[BondSpec]
     polyhedra: list[PolyhedronSpec]
+    chargeDensity: NotRequired[ChargeDensitySpec]
     brillouinZone: NotRequired[BrillouinZoneSpec]
     summary: StructureSummarySpec
     warnings: NotRequired[list[AnalysisWarningSpec]]

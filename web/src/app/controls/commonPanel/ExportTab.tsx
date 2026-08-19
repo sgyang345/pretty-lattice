@@ -1,4 +1,4 @@
-import { AlertTriangleIcon, ImageDown, Link, RotateCcw, Unlink } from "lucide-react";
+import { AlertTriangleIcon, Copy, ImageDown, Link, RotateCcw, Unlink } from "lucide-react";
 import { type CSSProperties, type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -74,20 +74,25 @@ const EXPORT_LEGEND_LAYOUT_LABELS: Record<ExportLegendLayout, string> = {
   horizontal: "Horizontal",
   vertical: "Vertical",
 };
+type CopyImageFormat = "jpg" | "png";
 const EXPORT_SEGMENTED_TRIGGER_CLASS =
   "!h-5 rounded-[4px] px-0.5 py-0 text-[0.68rem] font-medium transition-[background-color,color,box-shadow] duration-75 ease-out motion-reduce:transition-none md:text-[0.68rem]";
 
 export function ExportTabContent({
   error,
   exportProjectedSize,
+  copyingImageFormat,
   isExporting,
+  onCopyImage,
   onExport,
   onSettingsChange,
   settings,
 }: {
   error: string | null;
   exportProjectedSize?: ExportProjectedSize;
+  copyingImageFormat: CopyImageFormat | null;
   isExporting: boolean;
+  onCopyImage: (format: CopyImageFormat) => void;
   onExport: () => void;
   onSettingsChange: (settings: ExportSettingsState) => void;
   settings: ExportSettingsState;
@@ -342,12 +347,12 @@ export function ExportTabContent({
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-col items-end gap-1.5">
           <Button
             size="sm"
             aria-label={actionLabel}
-            className="h-7 gap-1.5 rounded-full px-2.5 text-xs transition-[background-color,transform] duration-100 ease-out active:translate-y-[0.5px] active:bg-primary/80 [&_svg]:size-3.5"
-            disabled={!validation.valid}
+            className="h-7 w-[5.75rem] gap-1.5 rounded-full px-2.5 text-xs transition-[background-color,transform] duration-100 ease-out active:translate-y-[0.5px] active:bg-primary/80 [&_svg]:size-3.5"
+            disabled={!validation.valid || isExporting || copyingImageFormat !== null}
             onClick={onExport}
           >
             <span
@@ -370,9 +375,66 @@ export function ExportTabContent({
             </span>
             Export
           </Button>
+          <CopyImageButton
+            format="png"
+            disabled={!validation.valid || isExporting || copyingImageFormat !== null}
+            isCopying={copyingImageFormat === "png"}
+            onCopy={onCopyImage}
+          />
+          <CopyImageButton
+            format="jpg"
+            disabled={!validation.valid || isExporting || copyingImageFormat !== null}
+            isCopying={copyingImageFormat === "jpg"}
+            onCopy={onCopyImage}
+          />
         </div>
       </div>
     </div>
+  );
+}
+
+function CopyImageButton({
+  disabled,
+  format,
+  isCopying,
+  onCopy,
+}: {
+  disabled: boolean;
+  format: CopyImageFormat;
+  isCopying: boolean;
+  onCopy: (format: CopyImageFormat) => void;
+}) {
+  const label = `Copy ${format.toUpperCase()}`;
+
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      aria-label={`${label} image`}
+      className="h-7 w-[5.75rem] gap-1.5 rounded-full px-2.5 text-xs transition-[background-color,transform] duration-100 ease-out active:translate-y-[0.5px] [&_svg]:size-3.5"
+      disabled={disabled}
+      onClick={() => onCopy(format)}
+    >
+      <span
+        aria-hidden="true"
+        data-icon="inline-start"
+        className="relative inline-flex size-3.5 shrink-0"
+      >
+        <Copy
+          className={cn(
+            "absolute inset-0 transition-[opacity,transform] duration-150 ease-out",
+            isCopying ? "scale-90 opacity-0" : "scale-100 opacity-100",
+          )}
+        />
+        <span
+          className={cn(
+            "absolute inset-0 rounded-full border-2 border-foreground/25 border-t-foreground transition-opacity duration-150 ease-out motion-safe:animate-spin motion-safe:[animation-duration:450ms]",
+            isCopying ? "opacity-100" : "opacity-0",
+          )}
+        />
+      </span>
+      {label}
+    </Button>
   );
 }
 

@@ -120,7 +120,7 @@ mock.module("../src/scene/OrientationGizmo", () => ({
     onAxisClick,
     showLabels = true,
   }: {
-    onAxisClick?: (axis: "a" | "b" | "c") => void;
+    onAxisClick?: (axis: "a" | "b" | "c", direction?: 1 | -1) => void;
     showLabels?: boolean;
   }) => (
     <div
@@ -129,6 +129,9 @@ mock.module("../src/scene/OrientationGizmo", () => ({
     >
       <button type="button" onClick={() => onAxisClick?.("a")}>
         gizmo a
+      </button>
+      <button type="button" onClick={() => onAxisClick?.("a", -1)}>
+        gizmo -a
       </button>
       <button type="button" onClick={() => onAxisClick?.("c")}>
         gizmo c
@@ -146,6 +149,9 @@ let exportRequests: CreateFigureExportOptions[] = [];
 let exportDirectDownloads: { file: FigureExportFile; sourceFileName: string | null }[] = [];
 let exportZipDownloads: { files: FigureExportFile[]; sourceFileName: string | null }[] = [];
 let exportFailure: Error | null = null;
+let imageClipboardWrites: { items: Record<string, Blob> }[][] = [];
+let textClipboardValue = "";
+let textClipboardWrites: string[] = [];
 
 async function createFigureExportFilesMock(
   options: CreateFigureExportOptions,
@@ -206,6 +212,65 @@ function exportMimeType(format: ExportFormat) {
   return format === "jpg" ? "image/jpeg" : "image/png";
 }
 
+function installImageClipboardMock() {
+  class MockClipboardItem {
+    readonly items: Record<string, Blob>;
+
+    constructor(items: Record<string, Blob>) {
+      this.items = items;
+    }
+  }
+
+  imageClipboardWrites = [];
+  Object.defineProperty(globalThis, "ClipboardItem", {
+    configurable: true,
+    value: MockClipboardItem,
+  });
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      write: async (items: { items: Record<string, Blob> }[]) => {
+        imageClipboardWrites.push(items);
+      },
+    },
+  });
+  Object.defineProperty(globalThis, "createImageBitmap", {
+    configurable: true,
+    value: async () => ({
+      close: () => {},
+      height: 1,
+      width: 1,
+    }),
+  });
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: () => ({
+      drawImage: () => {},
+    }),
+  });
+  Object.defineProperty(HTMLCanvasElement.prototype, "toBlob", {
+    configurable: true,
+    value: (callback: BlobCallback, type?: string) => {
+      callback(new Blob(["clipboard image"], { type: type ?? "image/png" }));
+    },
+  });
+}
+
+function installTextClipboardMock(initialValue = "") {
+  textClipboardValue = initialValue;
+  textClipboardWrites = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      readText: async () => textClipboardValue,
+      writeText: async (text: string) => {
+        textClipboardValue = text;
+        textClipboardWrites.push(text);
+      },
+    },
+  });
+}
+
 async function downloadFigureExportZipMock(
   files: FigureExportFile[],
   sourceFileName: string | null,
@@ -263,6 +328,17 @@ beforeEach(() => {
   exportZipDownloads = [];
   exportFailure = null;
   exportRequests = [];
+  imageClipboardWrites = [];
+  textClipboardValue = "";
+  textClipboardWrites = [];
+  Object.defineProperty(globalThis, "ClipboardItem", {
+    configurable: true,
+    value: undefined,
+  });
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: undefined,
+  });
 });
 
 describe("App", () => {
@@ -344,7 +420,7 @@ describe("App", () => {
       within(commonControls)
         .getAllByRole("checkbox")
         .map((checkbox) => checkbox.getAttribute("aria-label")),
-    ).toEqual(["Atoms", "Bonds", "Unit cell", "Polyhedra"]);
+    ).toEqual(["Atoms", "Bonds", "Unit cell", "Polyhedra", "Charge density"]);
   });
 
   test("loads a startup structure from the local server and recomputes bonding", async () => {
@@ -421,6 +497,7 @@ describe("App", () => {
   test("saves figure exports to the startup path by default", async () => {
     const user = userEvent.setup();
     const scene = sceneWithPeriodicImages();
+    installImageClipboardMock();
     window.history.replaceState(null, "", "/?startup=1");
     queueFetchResponse(jsonResponse({ fileName: "SrTiO3.vasp", scene }));
 
@@ -447,11 +524,35 @@ describe("App", () => {
       "x-pretty-lattice-filename": "NaCl.png",
     });
     expect(fetchCalls[1]?.init?.body).toBeInstanceOf(Blob);
+    expect(imageClipboardWrites).toHaveLength(1);
+    expect(imageClipboardWrites[0]?.[0]?.items["image/png"]).toBeInstanceOf(Blob);
+  });
+
+  test("copies figure exports before browser download fallback", async () => {
+    const user = userEvent.setup();
+    const scene = sceneWithPeriodicImages();
+    installImageClipboardMock();
+    queueFetchResponse(jsonResponse(scene));
+
+    render(<App />);
+
+    await user.upload(getFileInput(), structureFile());
+    expect((await screen.findByTestId("lattice-canvas")).isConnected).toBe(true);
+
+    await openPreviewContextMenu();
+    await user.click(await screen.findByRole("menuitem", { name: "Export figure" }));
+
+    await waitFor(() => expect(exportRequests).toHaveLength(1));
+    expect(exportDirectDownloads).toHaveLength(1);
+    expect(exportDirectDownloads[0]?.file.fileName).toBe("NaCl.png");
+    expect(imageClipboardWrites).toHaveLength(1);
+    expect(imageClipboardWrites[0]?.[0]?.items["image/png"]).toBeInstanceOf(Blob);
   });
 
   test("asks before replacing existing startup figure exports", async () => {
     const user = userEvent.setup();
     const scene = sceneWithPeriodicImages();
+    installImageClipboardMock();
     window.history.replaceState(null, "", "/?startup=1");
     queueFetchResponse(jsonResponse({ fileName: "SrTiO3.vasp", scene }));
 
@@ -488,6 +589,42 @@ describe("App", () => {
     await waitFor(() => expect(fetchCalls).toHaveLength(3));
     expect(fetchCalls[2]?.input).toBe("/api/startup-binary-file?overwrite=true");
     expect(fetchCalls[2]?.init?.body).toBeInstanceOf(Blob);
+    expect(imageClipboardWrites).toHaveLength(2);
+    expect(imageClipboardWrites[1]?.[0]?.items["image/png"]).toBeInstanceOf(Blob);
+  });
+
+  test("copies figure exports before save-as from an existing-file prompt", async () => {
+    const user = userEvent.setup();
+    const scene = sceneWithPeriodicImages();
+    installImageClipboardMock();
+    window.history.replaceState(null, "", "/?startup=1");
+    queueFetchResponse(jsonResponse({ fileName: "SrTiO3.vasp", scene }));
+
+    render(<App />);
+
+    expect((await screen.findByTestId("lattice-canvas")).isConnected).toBe(true);
+    queueFetchResponse({
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({
+        detail: {
+          fileName: "NaCl.png",
+          path: "/tmp/NaCl.png",
+        },
+      }),
+      ok: false,
+      status: 409,
+    } as Response);
+
+    await openPreviewContextMenu();
+    await user.click(await screen.findByRole("menuitem", { name: "Export figure" }));
+
+    expect(await screen.findByText("File already exists")).toBeTruthy();
+    expect(imageClipboardWrites).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "Save as" }));
+
+    await waitFor(() => expect(imageClipboardWrites).toHaveLength(2));
+    expect(imageClipboardWrites[1]?.[0]?.items["image/png"]).toBeInstanceOf(Blob);
   });
 
   test("initializes uploaded structure camera controls from the uploaded cell", async () => {
@@ -628,6 +765,10 @@ describe("App", () => {
       expect(exportRequests[0]?.settings.format).toBe("png");
       expect(exportDirectDownloads[0]?.sourceFileName).toBe("NaCl.cif");
       expect(exportDirectDownloads[0]?.file.fileName).toBe("NaCl.png");
+
+      await openPreviewContextMenu();
+      expect(await screen.findByRole("menuitem", { name: "Copy PNG image" })).toBeTruthy();
+      expect(screen.getByRole("menuitem", { name: "Copy JPG image" })).toBeTruthy();
     } finally {
       fileInput.click = originalClick;
     }
@@ -644,7 +785,155 @@ describe("App", () => {
     expect(await screen.findByRole("menuitem", { name: "Reset view" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Open file" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Export figure" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Copy PNG image" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Copy JPG image" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Reset all" })).toBeTruthy();
+  });
+
+  test("copies PNG and JPG images from the preview context menu", async () => {
+    const user = userEvent.setup();
+    installImageClipboardMock();
+
+    await renderLoadedStructure(user);
+
+    await openPreviewContextMenu();
+    await user.click(await screen.findByRole("menuitem", { name: "Copy PNG image" }));
+
+    await waitFor(() => expect(exportRequests).toHaveLength(1));
+    expect(exportRequests[0]?.settings.format).toBe("png");
+    expect(imageClipboardWrites).toHaveLength(1);
+    expect(imageClipboardWrites[0]?.[0]?.items["image/png"]).toBeInstanceOf(Blob);
+    expect(await screen.findByText("PNG image copied to clipboard.")).toBeTruthy();
+
+    await openPreviewContextMenu();
+    await user.click(await screen.findByRole("menuitem", { name: "Copy JPG image" }));
+
+    await waitFor(() => expect(exportRequests).toHaveLength(2));
+    expect(exportRequests[1]?.settings.format).toBe("jpg");
+    expect(imageClipboardWrites).toHaveLength(2);
+    expect(imageClipboardWrites[1]?.[0]?.items["image/png"]).toBeInstanceOf(Blob);
+    expect(await screen.findByText("JPG image copied to clipboard.")).toBeTruthy();
+    expect(exportDirectDownloads).toHaveLength(0);
+    expect(exportZipDownloads).toHaveLength(0);
+  });
+
+  test("copies and pastes visualization settings including iso value and atom labels", async () => {
+    const user = userEvent.setup();
+    installTextClipboardMock();
+
+    await renderLoadedStructure(user, sceneWithPeriodicImages({ chargeDensity: true }));
+
+    const commonControls = screen.getByRole("complementary", { name: "Common controls" });
+    await user.click(within(commonControls).getByRole("tab", { name: "Display" }));
+
+    const isoInput = within(commonControls).getByRole("textbox", {
+      name: "Charge density iso value in electrons per bohr cubed",
+    }) as HTMLInputElement;
+    await user.clear(isoInput);
+    await user.type(isoInput, "0.15{Enter}");
+    expect(Number(isoInput.value)).toBe(0.15);
+
+    const atomLabelsSwitch = within(commonControls).getByRole("switch", {
+      name: "Atom labels",
+    });
+    await user.click(atomLabelsSwitch);
+    const labelModeSelect = within(commonControls).getByRole("combobox", {
+      name: "Element label visibility mode",
+    });
+    await user.click(labelModeSelect);
+    await user.click(await screen.findByRole("option", { name: "By element" }));
+    await user.click(within(commonControls).getByRole("checkbox", { name: "Show Cl labels" }));
+    const supercellAInput = within(commonControls).getByRole("spinbutton", {
+      name: "Supercell a repeat count",
+    }) as HTMLInputElement;
+    await user.clear(supercellAInput);
+    await user.type(supercellAInput, "3{Enter}");
+
+    await user.click(screen.getByRole("button", { name: "Copy view settings" }));
+
+    await waitFor(() => expect(textClipboardWrites).toHaveLength(1));
+    const clipboardSettings = JSON.parse(textClipboardWrites[0]!) as {
+      display: {
+        chargeDensity: {
+          fractionalOffset: [number, number, number];
+          isoValue: number;
+        };
+        visibility: {
+          atomLabels: {
+            elements: Record<string, boolean>;
+            enabled: boolean;
+            kind: string;
+            mode: string;
+          };
+          supercell: { a: number };
+        };
+      };
+    };
+    expect(clipboardSettings.display.chargeDensity.isoValue).toBe(0.15);
+    clipboardSettings.display.chargeDensity.fractionalOffset = [0.25, 0, 0];
+    textClipboardValue = `${JSON.stringify(clipboardSettings)}\n`;
+    expect(clipboardSettings.display.visibility.atomLabels).toMatchObject({
+      enabled: true,
+      kind: "element",
+      mode: "elements",
+    });
+    expect(clipboardSettings.display.visibility.atomLabels.elements.Cl).toBe(false);
+    expect(clipboardSettings.display.visibility.supercell.a).toBe(3);
+
+    await user.clear(isoInput);
+    await user.type(isoInput, "0.05{Enter}");
+    await user.click(within(commonControls).getByRole("switch", { name: "Atom number" }));
+    await user.clear(supercellAInput);
+    await user.type(supercellAInput, "1{Enter}");
+
+    expect(Number(isoInput.value)).toBe(0.05);
+    expect(supercellAInput.value).toBe("1");
+    expect(
+      within(commonControls).getByRole("switch", { name: "Atom labels" }).getAttribute(
+        "aria-checked",
+      ),
+    ).toBe("false");
+    expect(
+      within(commonControls).getByRole("switch", { name: "Atom number" }).getAttribute(
+        "aria-checked",
+      ),
+    ).toBe("true");
+
+    await user.click(screen.getByRole("button", { name: "Paste view settings" }));
+
+    await waitFor(() => expect(Number(isoInput.value)).toBe(0.15));
+    expect(supercellAInput.value).toBe("1");
+    expect(
+      within(commonControls).getByRole("switch", { name: "Atom labels" }).getAttribute(
+        "aria-checked",
+      ),
+    ).toBe("true");
+    expect(
+      within(commonControls).getByRole("switch", { name: "Atom number" }).getAttribute(
+        "aria-checked",
+      ),
+    ).toBe("false");
+    expect(
+      within(commonControls).getByRole("combobox", {
+        name: "Element label visibility mode",
+      }).textContent,
+    ).toContain("By element");
+    expect(
+      within(commonControls).getByRole("checkbox", { name: "Show Cl labels" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
+    expect(await screen.findByText("View settings applied.")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Copy view settings" }));
+    await waitFor(() => expect(textClipboardWrites).toHaveLength(2));
+    const pastedSettings = JSON.parse(textClipboardWrites[1]!) as {
+      display: {
+        chargeDensity: {
+          fractionalOffset: [number, number, number];
+        };
+      };
+    };
+    expect(pastedSettings.display.chargeDensity.fractionalOffset).toEqual([0, 0, 0]);
   });
 
   test("resets local preview settings from the context menu without reuploading", async () => {
@@ -692,7 +981,7 @@ describe("App", () => {
     await user.click(within(resetControls).getByRole("tab", { name: "Style" }));
     expect(
       within(resetControls).getByRole("combobox", { name: "Color scheme" }).textContent,
-    ).toContain("VESTA Soft");
+    ).toContain("VESTA");
 
     expect(screen.queryByTestId("fps-overlay")).toBeNull();
     const resetInspector = screen.getByRole("complementary", { name: "Sidebar" });
@@ -1042,7 +1331,7 @@ describe("App", () => {
     expect(atomsOpacityInput.value).toBe("100");
     expect(atomsOpacityInput.parentElement?.textContent).toContain("%");
     expect(bondsOpacityInput.value).toBe("100");
-    expect(polyhedraOpacityInput.value).toBe("75");
+    expect(polyhedraOpacityInput.value).toBe("50");
     expect(polyhedraOpacitySlider.max).toBe("100");
 
     await user.clear(atomsOpacityInput);
@@ -1059,7 +1348,7 @@ describe("App", () => {
     await user.click(resetOpacityButton);
 
     expect(resetOpacityButton.className).toContain("tool-icon-button-reset-feedback");
-    expect(polyhedraOpacityInput.value).toBe("75");
+    expect(polyhedraOpacityInput.value).toBe("50");
 
     const polyhedraCheckbox = within(commonControls).getByRole("checkbox", {
       name: "Polyhedra",
@@ -1100,7 +1389,7 @@ describe("App", () => {
     expect(atomsCheckbox.getAttribute("aria-checked")).toBe("false");
     expect(unitCellOpacityInput.value).toBe("100");
     expect(bondsOpacityInput.value).toBe("100");
-    expect(polyhedraOpacityInput.value).toBe("75");
+    expect(polyhedraOpacityInput.value).toBe("50");
     expect(resetOpacityButton.className).toContain("tool-icon-button-reset-feedback");
     await waitFor(() =>
       expect(resetOpacityButton.className).not.toContain("tool-icon-button-reset-feedback"),
@@ -1170,15 +1459,15 @@ describe("App", () => {
     expect(bondThicknessInput.value).toBe("100");
     expect(commonControls.querySelectorAll(".opacity-slider-snap-marker")).toHaveLength(0);
     expect(within(commonControls).getByText("Atom").isConnected).toBe(true);
-    expect(materialSelect.textContent).toContain("Modern Matte");
+    expect(materialSelect.textContent).toContain("Metallic");
     expect(bondStyleSelect.textContent).toContain("Bicolor");
     expect(within(commonControls).queryByRole("button", { name: "Bond color" })).toBeNull();
-    expect(colorSchemeSelect.textContent).toContain("VESTA Soft");
+    expect(colorSchemeSelect.textContent).toContain("VESTA");
     await user.click(colorSchemeSelect);
     expect(await screen.findByRole("option", { name: "Custom" })).toBeTruthy();
     await user.click(await screen.findByRole("option", { name: "Custom" }));
     expect(colorSchemeSelect.textContent).toContain("Custom");
-    expect((screen.getByLabelText("Na color value") as HTMLInputElement).value).toBe("#e7d15f");
+    expect((screen.getByLabelText("Na color value") as HTMLInputElement).value).toBe("#fadd3d");
     await user.click(colorSchemeSelect);
     await user.click(await screen.findByRole("option", { name: "Jmol" }));
     await user.click(colorSchemeSelect);
@@ -1460,7 +1749,7 @@ describe("App", () => {
     expect(widthInput.value).toBe("2000");
     expect(heightInput.value).toBe("2000");
     expect(structureCheckbox.getAttribute("aria-checked")).toBe("true");
-    expect(crystalAxesCheckbox.getAttribute("aria-checked")).toBe("false");
+    expect(crystalAxesCheckbox.getAttribute("aria-checked")).toBe("true");
     expect(legendCheckbox.getAttribute("aria-checked")).toBe("false");
     expect(combineSwitch.getAttribute("aria-checked")).toBe("true");
     expect(legendLayoutSelect.textContent).toContain("Horizontal");
@@ -1473,7 +1762,6 @@ describe("App", () => {
     await user.click(combineSwitch);
     expect(combineSwitch.getAttribute("aria-checked")).toBe("false");
 
-    await user.click(crystalAxesCheckbox);
     await user.click(legendCheckbox);
     expect(legendLayoutSelect.getAttribute("disabled")).toBeNull();
     await user.click(legendLayoutSelect);
@@ -1607,6 +1895,38 @@ describe("App", () => {
     expect(exportDirectDownloads[0]?.file.fileName).toBe("NaCl.jpg");
   });
 
+  test("copies PNG and JPG images from the export panel", async () => {
+    const user = userEvent.setup();
+    installImageClipboardMock();
+
+    await renderLoadedStructure(user);
+
+    const commonControls = screen.getByRole("complementary", { name: "Common controls" });
+    await user.click(within(commonControls).getByRole("tab", { name: "Export" }));
+
+    const formatSelect = within(commonControls).getByRole("combobox", {
+      name: "Format",
+    });
+    await user.click(formatSelect);
+    await user.click(await screen.findByRole("option", { name: "JPG" }));
+
+    await user.click(within(commonControls).getByRole("button", { name: "Copy PNG image" }));
+    await waitFor(() => expect(exportRequests).toHaveLength(1));
+    expect(exportRequests[0]?.settings.format).toBe("png");
+    expect(imageClipboardWrites).toHaveLength(1);
+    expect(imageClipboardWrites[0]?.[0]?.items["image/png"]).toBeInstanceOf(Blob);
+    expect(await screen.findByText("PNG image copied to clipboard.")).toBeTruthy();
+
+    await user.click(within(commonControls).getByRole("button", { name: "Copy JPG image" }));
+    await waitFor(() => expect(exportRequests).toHaveLength(2));
+    expect(exportRequests[1]?.settings.format).toBe("jpg");
+    expect(imageClipboardWrites).toHaveLength(2);
+    expect(imageClipboardWrites[1]?.[0]?.items["image/png"]).toBeInstanceOf(Blob);
+    expect(await screen.findByText("JPG image copied to clipboard.")).toBeTruthy();
+    expect(exportDirectDownloads).toHaveLength(0);
+    expect(exportZipDownloads).toHaveLength(0);
+  });
+
   test("shows recoverable export errors without losing the loaded scene", async () => {
     const user = userEvent.setup();
 
@@ -1719,6 +2039,26 @@ describe("App", () => {
     await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
 
     expect(within(commonControls).queryByText("No controls")).toBeNull();
+    const projectionSelect = within(commonControls).getByRole("combobox", {
+      name: "View",
+    });
+    expect(projectionSelect.textContent).toContain("Parallel");
+    const projectionToggle = screen.getByRole("button", {
+      name: "Switch to Perspective view",
+    });
+    expect(projectionToggle.getAttribute("aria-pressed")).toBe("false");
+    await user.click(projectionToggle);
+    expect(projectionSelect.textContent).toContain("Perspective");
+    expect(
+      screen.getByRole("button", { name: "Switch to Parallel view" }).getAttribute(
+        "aria-pressed",
+      ),
+    ).toBe("true");
+    await user.click(screen.getByRole("button", { name: "Switch to Parallel view" }));
+    expect(projectionSelect.textContent).toContain("Parallel");
+    await user.click(projectionSelect);
+    await user.click(await screen.findByRole("option", { name: "Perspective" }));
+    expect(projectionSelect.textContent).toContain("Perspective");
     expect(within(commonControls).getByText("Primary Axis").isConnected).toBe(true);
     expect(within(commonControls).queryByText("Primary direction")).toBeNull();
     expect(
@@ -1819,6 +2159,84 @@ describe("App", () => {
     const body = fetchCalls[1]?.init?.body;
     expect(body).toBeInstanceOf(File);
     await expect((body as File).text()).resolves.toContain("0.25  0  0  Na");
+  });
+
+  test("uses a structure filename for atom position rebuilds from charge-density sources", async () => {
+    const user = userEvent.setup();
+
+    queueFetchResponse(jsonResponse(sceneWithPeriodicImages({ chargeDensity: true })));
+    render(<App />);
+    await user.upload(getFileInput(), structureFile("CHGCAR"));
+    await screen.findByTestId("lattice-canvas");
+
+    const commonControls = screen.getByRole("complementary", { name: "Common controls" });
+    await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
+
+    const sodiumXInput = within(commonControls).getByRole("textbox", {
+      name: "Na1 fractional x",
+    });
+    queueFetchResponse(jsonResponse(sceneWithPeriodicImages({ chargeDensity: true })));
+    await user.clear(sodiumXInput);
+    await user.type(sodiumXInput, "0.25{Enter}");
+
+    await waitFor(() => expect(fetchCalls).toHaveLength(2));
+    expect(fetchCalls[1]?.init?.headers).toMatchObject({
+      "x-pretty-lattice-filename": "structure-CHGCAR-positions.vasp",
+    });
+  });
+
+  test("temporarily hides one-hop bonded atoms during whole-structure translation and restores them after rebuild", async () => {
+    const user = userEvent.setup();
+
+    await renderLoadedStructure(user);
+    const commonControls = screen.getByRole("complementary", { name: "Common controls" });
+    const oneHopSwitch = screen.getByRole("switch", {
+      name: "One-hop bonded atoms",
+    });
+    expect(oneHopSwitch.getAttribute("aria-checked")).toBe("true");
+
+    await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
+    queueFetchResponse(jsonResponse(sceneWithPeriodicImages()));
+    await user.click(within(commonControls).getByRole("button", {
+      name: "Increase fractional z",
+    }));
+    await user.click(within(commonControls).getByRole("tab", { name: "Display" }));
+
+    expect(screen.getByRole("switch", {
+      name: "One-hop bonded atoms",
+    }).getAttribute("aria-checked")).toBe("false");
+
+    await waitFor(() => expect(fetchCalls).toHaveLength(2));
+    await waitFor(() =>
+      expect(screen.getByRole("switch", {
+        name: "One-hop bonded atoms",
+      }).getAttribute("aria-checked")).toBe("true"),
+    );
+  });
+
+  test("does not enable one-hop bonded atoms after whole-structure translation when they started disabled", async () => {
+    const user = userEvent.setup();
+
+    await renderLoadedStructure(user);
+    const commonControls = screen.getByRole("complementary", { name: "Common controls" });
+    const oneHopSwitch = screen.getByRole("switch", {
+      name: "One-hop bonded atoms",
+    });
+
+    await user.click(oneHopSwitch);
+    expect(oneHopSwitch.getAttribute("aria-checked")).toBe("false");
+
+    await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
+    queueFetchResponse(jsonResponse(sceneWithPeriodicImages()));
+    await user.click(within(commonControls).getByRole("button", {
+      name: "Increase fractional z",
+    }));
+    await user.click(within(commonControls).getByRole("tab", { name: "Display" }));
+
+    await waitFor(() => expect(fetchCalls).toHaveLength(2));
+    expect(screen.getByRole("switch", {
+      name: "One-hop bonded atoms",
+    }).getAttribute("aria-checked")).toBe("false");
   });
 
   test("formats roll controls as zero to 360 degrees", async () => {
@@ -2014,6 +2432,12 @@ describe("App", () => {
     expect(
       within(commonControls).getByRole("textbox", { name: "y c" }),
     ).toHaveProperty("value", "1.00");
+
+    await user.click(screen.getByRole("button", { name: "gizmo -a" }));
+
+    expect(
+      within(commonControls).getByRole("textbox", { name: "y a" }),
+    ).toHaveProperty("value", "-1.00");
   });
 
   test("starts with expanded extended structure details and toggles them from the card", async () => {
@@ -2311,11 +2735,10 @@ describe("App", () => {
 
     render(<App />);
 
-    const largeFile = new File(
-      [new Uint8Array(1 * 1024 * 1024 + 1)],
-      "movie.mp4",
-      { type: "video/mp4" },
-    );
+    const largeFile = new File(["x"], "movie.mp4", { type: "video/mp4" });
+    Object.defineProperty(largeFile, "size", {
+      value: 100 * 1024 * 1024 + 1,
+    });
     await user.upload(getFileInput(), largeFile);
 
     const alert = await screen.findByRole("alert");
@@ -2362,9 +2785,11 @@ describe("App", () => {
 
 function sceneWithPeriodicImages({
   atomCount = 2,
+  chargeDensity = false,
   polyhedra = true,
 }: {
   atomCount?: number;
+  chargeDensity?: boolean;
   polyhedra?: boolean;
 } = {}): SceneSpec {
   return {
@@ -2407,6 +2832,7 @@ function sceneWithPeriodicImages({
         [0, 0, 1],
       ],
     },
+    chargeDensity: chargeDensity ? testChargeDensity() : undefined,
     summary: {
       atomCount,
       cell: {
@@ -2428,6 +2854,23 @@ function sceneWithPeriodicImages({
         spaceGroupNumber: null,
       },
     },
+  };
+}
+
+function testChargeDensity(): NonNullable<SceneSpec["chargeDensity"]> {
+  return {
+    grid: [2, 2, 2],
+    isoValue: 0.1,
+    max: 0.2,
+    min: -0.2,
+    mode: "total",
+    positions: [[0, 0, 0]],
+    sampleCount: 1,
+    scalarValues: [0, 0.1, 0.2, 0.1, -0.1, -0.2, -0.1, 0],
+    source: "CHGCAR",
+    totalCandidateCount: 1,
+    values: [0.2],
+    voxelSize: 0.1,
   };
 }
 

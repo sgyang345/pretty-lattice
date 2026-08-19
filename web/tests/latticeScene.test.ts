@@ -483,7 +483,7 @@ describe("computeSceneLayout", () => {
     applyCameraPoseSnapshot(camera, snapshot, 10, 3);
 
     expect(snapshot).toEqual({
-      projection: "orthographic",
+      projection: "parallel",
       quaternion: [0, 0, 0, 1],
       target: [1, 2, 3],
     });

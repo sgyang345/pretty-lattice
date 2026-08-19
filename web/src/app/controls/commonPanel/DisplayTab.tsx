@@ -6,6 +6,7 @@ import {
   type SetStateAction,
   type WheelEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -26,6 +27,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import type { ChargeDensitySpec } from "../../../api/scene";
 import {
   ATOM_LABEL_SIZE_MAX,
   ATOM_LABEL_SIZE_MIN,
@@ -44,9 +46,29 @@ import {
   atomNumberForAtom,
   atomLabelElementsForAtoms,
   atomLabelOptionsForAtoms,
+  CHARGE_DENSITY_BOUNDARY_FILL_OPACITY_MAX,
+  CHARGE_DENSITY_BOUNDARY_FILL_OPACITY_MIN,
+  CHARGE_DENSITY_INTERPOLATION_FACTORS,
+  CHARGE_DENSITY_SECTION_OPACITY_MAX,
+  CHARGE_DENSITY_SECTION_OPACITY_MIN,
+  CHARGE_DENSITY_SECTION_POSITION_MAX,
+  CHARGE_DENSITY_SECTION_POSITION_MIN,
   COMPONENT_OPACITY_MAX,
+  DEFAULT_CHARGE_DENSITY_NEGATIVE_COLOR,
+  DEFAULT_CHARGE_DENSITY_POSITIVE_COLOR,
+  chargeDensityValueFromAngstromUnit,
+  chargeDensityValueFromVestaUnit,
+  chargeDensityValueToAngstromUnit,
+  chargeDensityValueToVestaUnit,
   createDefaultComponentOpacity,
   DEFAULT_SUPERCELL_MATRIX,
+  normalizeChargeDensityBoundaryFillOpacity,
+  normalizeChargeDensityInterpolationFactor,
+  normalizeChargeDensitySectionAxis,
+  normalizeChargeDensitySectionOpacity,
+  normalizeChargeDensitySectionPosition,
+  normalizeChargeDensitySurfaceMode,
+  normalizeChargeDensityColor,
   normalizeAtomVectorColor,
   normalizeSupercellMatrixValue,
   normalizeSupercellValue,
@@ -59,6 +81,9 @@ import {
   type AtomLabelMode,
   type AtomLabelSettings,
   type AtomVectorSettings,
+  type ChargeDensityDisplayState,
+  type ChargeDensitySectionAxis,
+  type ChargeDensitySurfaceMode,
   type ComponentOpacityState,
   type ComponentVisibilityState,
   type SupercellMatrix,
@@ -89,8 +114,12 @@ import {
 
 export function DisplayTabContent({
   atomVectors,
+  chargeDensityDisplay,
+  chargeDensity,
+  hasChargeDensity,
   hasPolyhedra,
   onAtomVectorsChange,
+  onChargeDensityDisplayChange,
   onOpacityChange,
   onVisibilityChange,
   opacity,
@@ -98,8 +127,12 @@ export function DisplayTabContent({
   visibility,
 }: {
   atomVectors: AtomVectorSettings;
+  chargeDensityDisplay: ChargeDensityDisplayState;
+  chargeDensity: ChargeDensitySpec | undefined;
+  hasChargeDensity: boolean;
   hasPolyhedra: boolean;
   onAtomVectorsChange: Dispatch<SetStateAction<AtomVectorSettings>>;
+  onChargeDensityDisplayChange: Dispatch<SetStateAction<ChargeDensityDisplayState>>;
   onOpacityChange: Dispatch<SetStateAction<ComponentOpacityState>>;
   onVisibilityChange: Dispatch<SetStateAction<ComponentVisibilityState>>;
   opacity: ComponentOpacityState;
@@ -107,12 +140,26 @@ export function DisplayTabContent({
   visibility: ComponentVisibilityState;
 }) {
   function setVisibility(
-    key: "atoms" | "unitCell" | "bonds" | "polyhedra" | "boundaryAtoms" | "oneHopBondedAtoms",
+    key:
+      | "atoms"
+      | "unitCell"
+      | "bonds"
+      | "polyhedra"
+      | "chargeDensity"
+      | "boundaryAtoms"
+      | "oneHopBondedAtoms",
     value: boolean,
   ) {
     onVisibilityChange((currentVisibility) => ({
       ...currentVisibility,
       [key]: value,
+      supercell:
+        key === "chargeDensity" && value && currentVisibility.supercell.mode === "matrix"
+          ? {
+              ...currentVisibility.supercell,
+              mode: "repeat",
+            }
+          : currentVisibility.supercell,
     }));
   }
 
@@ -120,6 +167,73 @@ export function DisplayTabContent({
     onOpacityChange((currentOpacity) => ({
       ...currentOpacity,
       [key]: clampOpacityValue(value, COMPONENT_OPACITY_MAX[key]),
+    }));
+  }
+
+  function setChargeDensityIsoValue(value: number) {
+    onChargeDensityDisplayChange((currentSettings) => ({
+      ...currentSettings,
+      isoValue: clampChargeDensityIsoValue(value, chargeDensity),
+    }));
+  }
+
+  function setChargeDensityInterpolationFactor(value: number) {
+    onChargeDensityDisplayChange((currentSettings) => ({
+      ...currentSettings,
+      interpolationFactor: normalizeChargeDensityInterpolationFactor(value),
+    }));
+  }
+
+  function setChargeDensitySurfaceMode(value: ChargeDensitySurfaceMode) {
+    onChargeDensityDisplayChange((currentSettings) => ({
+      ...currentSettings,
+      surfaceMode: normalizeChargeDensitySurfaceMode(value),
+    }));
+  }
+
+  function setChargeDensitySectionEnabled(value: boolean) {
+    onChargeDensityDisplayChange((currentSettings) => ({
+      ...currentSettings,
+      sectionEnabled: value,
+    }));
+  }
+
+  function setChargeDensitySectionAxis(value: ChargeDensitySectionAxis) {
+    onChargeDensityDisplayChange((currentSettings) => ({
+      ...currentSettings,
+      sectionAxis: normalizeChargeDensitySectionAxis(value),
+    }));
+  }
+
+  function setChargeDensitySectionOpacity(value: number) {
+    onChargeDensityDisplayChange((currentSettings) => ({
+      ...currentSettings,
+      sectionOpacity: normalizeChargeDensitySectionOpacity(value),
+    }));
+  }
+
+  function setChargeDensitySectionPosition(value: number) {
+    onChargeDensityDisplayChange((currentSettings) => ({
+      ...currentSettings,
+      sectionPosition: normalizeChargeDensitySectionPosition(value),
+    }));
+  }
+
+  function setChargeDensityBoundaryFillOpacity(value: number) {
+    onChargeDensityDisplayChange((currentSettings) => ({
+      ...currentSettings,
+      boundaryFillOpacity: normalizeChargeDensityBoundaryFillOpacity(value),
+    }));
+  }
+
+  function setChargeDensityColor(
+    key: "boundaryColor" | "negativeColor" | "positiveColor",
+    value: string,
+    fallback: string,
+  ) {
+    onChargeDensityDisplayChange((currentSettings) => ({
+      ...currentSettings,
+      [key]: normalizeChargeDensityColor(value, fallback),
     }));
   }
 
@@ -143,7 +257,13 @@ export function DisplayTabContent({
   function setSupercell(nextSupercell: SupercellSettings) {
     onVisibilityChange((currentVisibility) => ({
       ...currentVisibility,
-      supercell: nextSupercell,
+      supercell:
+        currentVisibility.chargeDensity && nextSupercell.mode === "matrix"
+          ? {
+              ...nextSupercell,
+              mode: "repeat",
+            }
+          : nextSupercell,
     }));
   }
 
@@ -166,6 +286,27 @@ export function DisplayTabContent({
     },
     [],
   );
+
+  useEffect(() => {
+    if (hasChargeDensity && visibility.chargeDensity && visibility.supercell.mode === "matrix") {
+      onVisibilityChange((currentVisibility) =>
+        currentVisibility.chargeDensity && currentVisibility.supercell.mode === "matrix"
+          ? {
+              ...currentVisibility,
+              supercell: {
+                ...currentVisibility.supercell,
+                mode: "repeat",
+              },
+            }
+          : currentVisibility,
+      );
+    }
+  }, [
+    hasChargeDensity,
+    onVisibilityChange,
+    visibility.chargeDensity,
+    visibility.supercell.mode,
+  ]);
 
   function handleResetOpacityClick() {
     onOpacityChange(createDefaultComponentOpacity());
@@ -292,6 +433,51 @@ export function DisplayTabContent({
             onCheckedChange={(checked) => setVisibility("polyhedra", checked)}
             onOpacityChange={(value) => setOpacity("polyhedra", value)}
           />
+          <ComponentOpacityRow
+            checked={hasChargeDensity && visibility.chargeDensity}
+            checkboxDisabled={!hasChargeDensity}
+            label="Charge density"
+            max={COMPONENT_OPACITY_MAX.chargeDensity}
+            value={opacity.chargeDensity}
+            onCheckedChange={(checked) => setVisibility("chargeDensity", checked)}
+            onOpacityChange={(value) => setOpacity("chargeDensity", value)}
+          />
+          {hasChargeDensity ? (
+            <ChargeDensityControls
+              chargeDensity={chargeDensity}
+              disabled={!visibility.chargeDensity}
+              settings={chargeDensityDisplay}
+              onInterpolationFactorChange={setChargeDensityInterpolationFactor}
+              onIsoValueChange={setChargeDensityIsoValue}
+              onNegativeColorChange={(value) =>
+                setChargeDensityColor(
+                  "negativeColor",
+                  value,
+                  DEFAULT_CHARGE_DENSITY_NEGATIVE_COLOR,
+                )
+              }
+              onPositiveColorChange={(value) =>
+                setChargeDensityColor(
+                  "positiveColor",
+                  value,
+                  DEFAULT_CHARGE_DENSITY_POSITIVE_COLOR,
+                )
+              }
+              onBoundaryColorChange={(value) =>
+                setChargeDensityColor(
+                  "boundaryColor",
+                  value,
+                  chargeDensityDisplay.boundaryColor,
+                )
+              }
+              onBoundaryFillOpacityChange={setChargeDensityBoundaryFillOpacity}
+              onSectionAxisChange={setChargeDensitySectionAxis}
+              onSectionEnabledChange={setChargeDensitySectionEnabled}
+              onSectionOpacityChange={setChargeDensitySectionOpacity}
+              onSectionPositionChange={setChargeDensitySectionPosition}
+              onSurfaceModeChange={setChargeDensitySurfaceMode}
+            />
+          ) : null}
         </div>
       </section>
 
@@ -316,6 +502,7 @@ export function DisplayTabContent({
             onCheckedChange={(checked) => setVisibility("oneHopBondedAtoms", checked)}
           />
           <SupercellControls
+            matrixDisabled={hasChargeDensity && visibility.chargeDensity}
             settings={visibility.supercell}
             onSettingsChange={setSupercell}
           />
@@ -325,18 +512,508 @@ export function DisplayTabContent({
   );
 }
 
+function ChargeDensityControls({
+  chargeDensity,
+  disabled,
+  onBoundaryColorChange,
+  onBoundaryFillOpacityChange,
+  onInterpolationFactorChange,
+  onIsoValueChange,
+  onNegativeColorChange,
+  onPositiveColorChange,
+  onSectionAxisChange,
+  onSectionEnabledChange,
+  onSectionOpacityChange,
+  onSectionPositionChange,
+  onSurfaceModeChange,
+  settings,
+}: {
+  chargeDensity: ChargeDensitySpec | undefined;
+  disabled: boolean;
+  onBoundaryColorChange: (value: string) => void;
+  onBoundaryFillOpacityChange: (value: number) => void;
+  onInterpolationFactorChange: (value: number) => void;
+  onIsoValueChange: (value: number) => void;
+  onNegativeColorChange: (value: string) => void;
+  onPositiveColorChange: (value: string) => void;
+  onSectionAxisChange: (value: ChargeDensitySectionAxis) => void;
+  onSectionEnabledChange: (value: boolean) => void;
+  onSectionOpacityChange: (value: number) => void;
+  onSectionPositionChange: (value: number) => void;
+  onSurfaceModeChange: (value: ChargeDensitySurfaceMode) => void;
+  settings: ChargeDensityDisplayState;
+}) {
+  return (
+    <div className="rounded-md bg-muted/35 px-1.5 py-1.5">
+      <ChargeDensityIsoValueControl
+        chargeDensity={chargeDensity}
+        disabled={disabled}
+        value={settings.isoValue}
+        onValueChange={onIsoValueChange}
+      />
+      <ChargeDensityInterpolationControl
+        disabled={disabled}
+        value={settings.interpolationFactor}
+        onValueChange={onInterpolationFactorChange}
+      />
+      <ChargeDensitySurfaceModeControl
+        disabled={disabled}
+        value={settings.surfaceMode}
+        onValueChange={onSurfaceModeChange}
+      />
+      <ImageSwitchRow
+        checked={settings.sectionEnabled}
+        label="Section"
+        onCheckedChange={onSectionEnabledChange}
+      />
+      {settings.sectionEnabled ? (
+        <ChargeDensitySectionControls
+          disabled={disabled}
+          settings={settings}
+          onAxisChange={onSectionAxisChange}
+          onOpacityChange={onSectionOpacityChange}
+          onPositionChange={onSectionPositionChange}
+        />
+      ) : null}
+      <ChargeDensityColorInput
+        ariaLabel="Positive charge density color"
+        label="Positive color"
+        value={settings.positiveColor}
+        onCommit={onPositiveColorChange}
+      />
+      <ChargeDensityColorInput
+        ariaLabel="Negative charge density color"
+        label="Negative color"
+        value={settings.negativeColor}
+        onCommit={onNegativeColorChange}
+      />
+      <ChargeDensityColorInput
+        ariaLabel="Charge density boundary cut color"
+        label="Cut color"
+        value={settings.boundaryColor}
+        onCommit={onBoundaryColorChange}
+      />
+      <PercentSliderRow
+        accessibleLabel="Charge density boundary cut opacity"
+        allowZero
+        disabled={disabled}
+        label="Cut opacity"
+        min={CHARGE_DENSITY_BOUNDARY_FILL_OPACITY_MIN}
+        max={CHARGE_DENSITY_BOUNDARY_FILL_OPACITY_MAX}
+        value={settings.boundaryFillOpacity}
+        valueLabel="opacity"
+        onValueChange={onBoundaryFillOpacityChange}
+      />
+    </div>
+  );
+}
+
+function ChargeDensityIsoValueControl({
+  chargeDensity,
+  disabled,
+  onValueChange,
+  value,
+}: {
+  chargeDensity: ChargeDensitySpec | undefined;
+  disabled: boolean;
+  onValueChange: (value: number) => void;
+  value: number;
+}) {
+  const maxValue = maxAbsChargeDensitySpecValue(chargeDensity);
+  const sliderMax = Math.max(maxValue, value, 1e-12);
+  const sliderStep = chargeDensityIsoStep(sliderMax);
+  const clampedValue = clampChargeDensityIsoValue(value, chargeDensity);
+  const sliderPosition = sliderMax <= 0 ? 0 : clampedValue / sliderMax;
+  const unit = chargeDensity?.unit;
+  const vestaValue = chargeDensityValueToVestaUnit(clampedValue, unit);
+  const angstromValue = chargeDensityValueToAngstromUnit(clampedValue, unit);
+  const sliderStyle = {
+    "--opacity-slider-position": `${Math.min(100, Math.max(0, sliderPosition * 100))}%`,
+  } as CSSProperties;
+
+  return (
+    <div className={cn("grid min-w-0 grid-cols-[4.85rem_minmax(0,1fr)] items-center gap-x-1.5 gap-y-1 px-1.5 py-0.5", COMMON_PANEL_BODY_TEXT_CLASS)}>
+      <div className="min-w-0 overflow-visible leading-tight">Iso value</div>
+      <div
+        className="opacity-slider-shell relative mr-2 h-5 min-w-0"
+        data-disabled={disabled ? "true" : "false"}
+        style={sliderStyle}
+      >
+        <input
+          type="range"
+          min={0}
+          max={sliderMax}
+          step={sliderStep}
+          value={clampedValue}
+          aria-label="Charge density iso value"
+          aria-valuetext={`${formatChargeDensityIsoValue(vestaValue)} ${CHARGE_DENSITY_VESTA_UNIT_LABEL}; ${formatChargeDensityIsoValue(angstromValue)} ${CHARGE_DENSITY_ANGSTROM_UNIT_LABEL}`}
+          className="opacity-slider absolute inset-0 z-10 h-full w-full"
+          disabled={disabled}
+          onChange={(event) => onValueChange(Number(event.target.value))}
+        />
+        <span aria-hidden="true" className="opacity-slider-track pointer-events-none" />
+        <span aria-hidden="true" className="opacity-slider-fill pointer-events-none" />
+        <span aria-hidden="true" className="opacity-slider-thumb pointer-events-none" />
+      </div>
+      <span className="min-w-0 truncate leading-tight text-muted-foreground">VESTA</span>
+      <ChargeDensityIsoValueInput
+        ariaLabel="Charge density iso value in electrons per bohr cubed"
+        disabled={disabled}
+        unitLabel={CHARGE_DENSITY_VESTA_UNIT_LABEL}
+        value={vestaValue}
+        onCommit={(nextValue) =>
+          onValueChange(
+            clampChargeDensityIsoValue(
+              chargeDensityValueFromVestaUnit(nextValue, unit),
+              chargeDensity,
+            ),
+          )
+        }
+      />
+      <span className="min-w-0 truncate leading-tight text-muted-foreground">Angstrom</span>
+      <ChargeDensityIsoValueInput
+        ariaLabel="Charge density iso value in electrons per angstrom cubed"
+        disabled={disabled}
+        unitLabel={CHARGE_DENSITY_ANGSTROM_UNIT_LABEL}
+        value={angstromValue}
+        onCommit={(nextValue) =>
+          onValueChange(
+            clampChargeDensityIsoValue(
+              chargeDensityValueFromAngstromUnit(nextValue, unit),
+              chargeDensity,
+            ),
+          )
+        }
+      />
+    </div>
+  );
+}
+
+function ChargeDensityIsoValueInput({
+  ariaLabel,
+  disabled,
+  onCommit,
+  unitLabel,
+  value,
+}: {
+  ariaLabel: string;
+  disabled: boolean;
+  onCommit: (value: number) => void;
+  unitLabel: string;
+  value: number;
+}) {
+  const formattedValue = useMemo(() => formatChargeDensityIsoValue(value), [value]);
+  const [text, setText] = useState(formattedValue);
+
+  useEffect(() => {
+    setText(formattedValue);
+  }, [formattedValue]);
+
+  function commitText() {
+    const nextValue = Number(text.trim());
+    if (!Number.isFinite(nextValue)) {
+      setText(formattedValue);
+      return;
+    }
+
+    onCommit(nextValue);
+  }
+
+  return (
+    <label className="opacity-value-control group grid h-[22px] min-w-0 grid-cols-[4.9rem_minmax(4.35rem,1fr)] items-baseline gap-1 rounded-md border px-1 transition-[background-color,border-color,box-shadow] duration-150" data-disabled={disabled ? "true" : "false"}>
+      <span className="sr-only">{ariaLabel}</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={text}
+        aria-label={ariaLabel}
+        className="h-full w-[4.9rem] min-w-0 overflow-hidden border-0 bg-transparent px-0 text-left font-mono text-[0.62rem] leading-none tabular-nums outline-none"
+        disabled={disabled}
+        onBlur={commitText}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+            commitText();
+          }
+          if (event.key === "Escape") {
+            setText(formattedValue);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+      <span aria-hidden="true" className="pointer-events-none min-w-[4.35rem] shrink-0 overflow-hidden text-left font-mono text-[0.52rem] font-normal leading-none text-muted-foreground">
+        {unitLabel}
+      </span>
+    </label>
+  );
+}
+
+function ChargeDensityInterpolationControl({
+  disabled,
+  onValueChange,
+  value,
+}: {
+  disabled: boolean;
+  onValueChange: (value: number) => void;
+  value: number;
+}) {
+  const normalizedValue = normalizeChargeDensityInterpolationFactor(value);
+
+  return (
+    <div className={cn("grid h-7 grid-cols-[minmax(5.5rem,1fr)_9.1rem] items-center gap-2 px-1.5", COMMON_PANEL_BODY_TEXT_CLASS)}>
+      <span className="min-w-0 truncate leading-tight">Interpolation</span>
+      <Select
+        disabled={disabled}
+        value={String(normalizedValue)}
+        onValueChange={(nextValue) => onValueChange(Number(nextValue))}
+      >
+        <SelectTrigger
+          size="sm"
+          aria-label="Charge density interpolation"
+          className="h-[24px] w-full bg-background px-2 py-0 text-xs"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent position="popper" className="!bg-background !text-foreground">
+          <SelectGroup>
+            {CHARGE_DENSITY_INTERPOLATION_FACTORS.map((factor) => (
+              <SelectItem key={factor} value={String(factor)} className="text-xs">
+                {factor}x linear
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function ChargeDensitySurfaceModeControl({
+  disabled,
+  onValueChange,
+  value,
+}: {
+  disabled: boolean;
+  onValueChange: (value: ChargeDensitySurfaceMode) => void;
+  value: ChargeDensitySurfaceMode;
+}) {
+  const normalizedValue = normalizeChargeDensitySurfaceMode(value);
+
+  return (
+    <div className={cn("grid h-7 grid-cols-[minmax(5.5rem,1fr)_9.1rem] items-center gap-2 px-1.5", COMMON_PANEL_BODY_TEXT_CLASS)}>
+      <span className="min-w-0 truncate leading-tight">Sign</span>
+      <Select
+        disabled={disabled}
+        value={normalizedValue}
+        onValueChange={(nextValue) =>
+          onValueChange(normalizeChargeDensitySurfaceMode(nextValue))
+        }
+      >
+        <SelectTrigger
+          size="sm"
+          aria-label="Charge density sign"
+          className="h-[24px] w-full bg-background px-2 py-0 text-xs"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent position="popper" className="!bg-background !text-foreground">
+          <SelectGroup>
+            <SelectItem value="both" className="text-xs">Both signs</SelectItem>
+            <SelectItem value="positive" className="text-xs">Positive only</SelectItem>
+            <SelectItem value="negative" className="text-xs">Negative only</SelectItem>
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function ChargeDensitySectionControls({
+  disabled,
+  onAxisChange,
+  onOpacityChange,
+  onPositionChange,
+  settings,
+}: {
+  disabled: boolean;
+  onAxisChange: (value: ChargeDensitySectionAxis) => void;
+  onOpacityChange: (value: number) => void;
+  onPositionChange: (value: number) => void;
+  settings: ChargeDensityDisplayState;
+}) {
+  return (
+    <>
+      <div className={cn("grid h-7 grid-cols-[minmax(5.5rem,1fr)_9.1rem] items-center gap-2 px-1.5", COMMON_PANEL_BODY_TEXT_CLASS)}>
+        <span className="min-w-0 truncate leading-tight">Section axis</span>
+        <Select
+          disabled={disabled}
+          value={settings.sectionAxis}
+          onValueChange={(value) =>
+            onAxisChange(normalizeChargeDensitySectionAxis(value))
+          }
+        >
+          <SelectTrigger
+            size="sm"
+            aria-label="Charge density section axis"
+            className="h-[24px] w-full bg-background px-2 py-0 text-xs"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent position="popper" className="!bg-background !text-foreground">
+            <SelectGroup>
+              <SelectItem value="a" className="text-xs">a section</SelectItem>
+              <SelectItem value="b" className="text-xs">b section</SelectItem>
+              <SelectItem value="c" className="text-xs">c section</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+      <PercentSliderRow
+        accessibleLabel="Charge density section position"
+        allowZero
+        disabled={disabled}
+        label="Section pos"
+        min={CHARGE_DENSITY_SECTION_POSITION_MIN}
+        max={CHARGE_DENSITY_SECTION_POSITION_MAX}
+        value={settings.sectionPosition}
+        valueLabel="position"
+        onValueChange={onPositionChange}
+      />
+      <PercentSliderRow
+        accessibleLabel="Charge density section opacity"
+        allowZero
+        disabled={disabled}
+        label="Section opacity"
+        min={CHARGE_DENSITY_SECTION_OPACITY_MIN}
+        max={CHARGE_DENSITY_SECTION_OPACITY_MAX}
+        value={settings.sectionOpacity}
+        valueLabel="opacity"
+        onValueChange={onOpacityChange}
+      />
+    </>
+  );
+}
+
+function ChargeDensityColorInput({
+  ariaLabel,
+  label,
+  onCommit,
+  value,
+}: {
+  ariaLabel: string;
+  label: string;
+  onCommit: (value: string) => void;
+  value: string;
+}) {
+  const [text, setText] = useState(value);
+
+  useEffect(() => {
+    setText(value);
+  }, [value]);
+
+  function commitText() {
+    const normalizedValue = normalizeChargeDensityColor(value, value);
+    const nextValue = normalizeChargeDensityColor(text, normalizedValue);
+    setText(nextValue);
+    onCommit(nextValue);
+  }
+
+  return (
+    <div className={cn("grid h-7 grid-cols-[minmax(5.5rem,1fr)_2rem_minmax(0,7rem)] items-center gap-2 px-1.5", COMMON_PANEL_BODY_TEXT_CLASS)}>
+      <span className="min-w-0 truncate leading-tight">{label}</span>
+      <Input
+        type="color"
+        value={value}
+        aria-label={ariaLabel}
+        className="h-[22px] w-8 cursor-pointer rounded-md border p-0.5"
+        onChange={(event) => onCommit(event.target.value)}
+      />
+      <Input
+        type="text"
+        inputMode="text"
+        value={text}
+        aria-label={`${ariaLabel} code`}
+        className="h-[22px] rounded-md px-1.5 text-center font-mono text-[0.68rem] tabular-nums"
+        onBlur={commitText}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+            commitText();
+          }
+          if (event.key === "Escape") {
+            setText(value);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+function maxAbsChargeDensitySpecValue(chargeDensity: ChargeDensitySpec | undefined): number {
+  if (!chargeDensity) {
+    return 0;
+  }
+
+  return Math.max(Math.abs(chargeDensity.min), Math.abs(chargeDensity.max));
+}
+
+function clampChargeDensityIsoValue(
+  value: number,
+  chargeDensity: ChargeDensitySpec | undefined,
+): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  const maxValue = maxAbsChargeDensitySpecValue(chargeDensity);
+  if (maxValue <= 0) {
+    return Math.max(0, value);
+  }
+
+  return Math.min(maxValue, Math.max(0, value));
+}
+
+function chargeDensityIsoStep(maxValue: number): number {
+  if (maxValue <= 0) {
+    return 0.001;
+  }
+
+  return Math.max(10 ** Math.floor(Math.log10(maxValue)) / 100, maxValue / 500);
+}
+
+function formatChargeDensityIsoValue(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0.0000";
+  }
+
+  return value.toFixed(CHARGE_DENSITY_ISO_DECIMALS);
+}
+
+const CHARGE_DENSITY_ISO_DECIMALS = 6;
+const CHARGE_DENSITY_VESTA_UNIT_LABEL = "e/bohr^3";
+const CHARGE_DENSITY_ANGSTROM_UNIT_LABEL = "e/\u00c5^3";
+
 type ComponentVisibilitySceneAtom = Parameters<typeof atomLabelElementsForAtoms>[0][number];
 const ATOM_VECTOR_LENGTH_PRESETS = [50, 100, 200] as const;
 type SupercellRepeatAxis = "a" | "b" | "c";
 
 function SupercellControls({
+  matrixDisabled,
   onSettingsChange,
   settings,
 }: {
+  matrixDisabled: boolean;
   onSettingsChange: (settings: SupercellSettings) => void;
   settings: SupercellSettings;
 }) {
   function updateMode(mode: SupercellMode) {
+    if (matrixDisabled && mode === "matrix") {
+      return;
+    }
+
     onSettingsChange({
       ...settings,
       mode,
@@ -383,7 +1060,7 @@ function SupercellControls({
     <div className="rounded-md bg-muted/35 px-1.5 py-1.5">
       <div className={cn("grid h-7 grid-cols-[minmax(5.5rem,1fr)_9.1rem] items-center gap-2 px-1.5", COMMON_PANEL_BODY_TEXT_CLASS)}>
         <span className="min-w-0 truncate leading-tight">Supercell</span>
-        <Select value={settings.mode} onValueChange={(value) => updateMode(value as SupercellMode)}>
+        <Select value={matrixDisabled && settings.mode === "matrix" ? "repeat" : settings.mode} onValueChange={(value) => updateMode(value as SupercellMode)}>
           <SelectTrigger
             size="sm"
             aria-label="Supercell mode"
@@ -394,7 +1071,7 @@ function SupercellControls({
           <SelectContent position="popper" className="!bg-background !text-foreground">
             <SelectGroup>
               <SelectItem value="repeat" className="text-xs">Repeat</SelectItem>
-              <SelectItem value="matrix" className="text-xs">Matrix</SelectItem>
+              <SelectItem value="matrix" disabled={matrixDisabled} className="text-xs">Matrix</SelectItem>
             </SelectGroup>
           </SelectContent>
         </Select>

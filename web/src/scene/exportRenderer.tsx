@@ -6,6 +6,7 @@ import type { SceneSpec } from "../api/scene";
 import type {
   AtomLabelSettings,
   AtomVectorSettings,
+  ChargeDensityDisplayState,
   ComponentOpacityState,
   ExportMeshQuality,
   ExportSupersampling,
@@ -43,6 +44,8 @@ import {
   type OrientationGizmoAxisSpec,
 } from "./orientationGizmoMath";
 
+const STRUCTURE_PERSPECTIVE_CAMERA_FOV_DEGREES = 35;
+
 export {
   STRUCTURE_LINE_WIDTH_MIN_PIXELS,
   STRUCTURE_LINE_WIDTH_REFERENCE_RATIO,
@@ -74,6 +77,7 @@ export interface RenderStructureRasterOptions {
   atomVectors?: AtomVectorSettings | null;
   backgroundColor: string | null;
   cameraPose: CameraPoseSnapshot;
+  chargeDensityDisplay: ChargeDensityDisplayState;
   componentOpacity: ComponentOpacityState;
   height: number;
   imageFormat: RasterExportImageFormat;
@@ -109,6 +113,7 @@ export async function renderStructureRasterImage({
   atomVectors = null,
   backgroundColor,
   cameraPose,
+  chargeDensityDisplay,
   componentOpacity,
   height,
   imageFormat,
@@ -168,6 +173,7 @@ export async function renderStructureRasterImage({
     await root.configure({
       camera: {
         far: Math.max(1000, layout.standardPose.distance + layout.span * 8),
+        fov: STRUCTURE_PERSPECTIVE_CAMERA_FOV_DEGREES,
         near: 0.01,
         position: layout.standardPose.cameraPosition,
         zoom: 1,
@@ -179,7 +185,7 @@ export async function renderStructureRasterImage({
         rootState = state;
         state.gl.setClearColor(backgroundColor ?? "#000000", backgroundColor ? 1 : 0);
       },
-      orthographic: true,
+      orthographic: cameraPose.projection === "parallel",
       size: {
         height: renderHeight,
         left: 0,
@@ -197,6 +203,7 @@ export async function renderStructureRasterImage({
         <ExportSceneContent
           atomLabelSettings={atomLabelSettings}
           atomVectors={atomVectors}
+          chargeDensityDisplay={chargeDensityDisplay}
           cameraPose={cameraPose}
           componentOpacity={componentOpacity}
           exportFramePlan={exportFramePlan}

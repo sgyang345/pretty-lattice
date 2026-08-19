@@ -1,5 +1,5 @@
 import type { AtomSpec, SceneSpec } from "../api/scene";
-import { atomLabelForAtom } from "../model/atomLabels";
+import { atomLabelForAtom, atomNumberForAtom } from "../model/atomLabels";
 import {
   atomVectorKeyForAtom,
   type AtomVectorSettings,
@@ -108,8 +108,16 @@ export function formatAtomDistanceForDisplay(value: number): string {
   return formatFixedCoordinate(value, DISPLAY_COORDINATE_DIGITS);
 }
 
+export function formatAtomDistanceForCopy(value: number): string {
+  return formatFixedCoordinate(value, COPY_COORDINATE_DIGITS);
+}
+
 export function formatAtomAngleForDisplay(value: number): string {
   return formatFixedCoordinate(value, DISPLAY_COORDINATE_DIGITS);
+}
+
+export function formatAtomAngleForCopy(value: number): string {
+  return formatFixedCoordinate(value, COPY_COORDINATE_DIGITS);
 }
 
 export function formatAtomCoordinateForCopy(values: [number, number, number]): string {
@@ -195,6 +203,59 @@ export function atomInspectorCopyText(
   }
 
   return lines.join("\n");
+}
+
+export function atomMeasurementCopyText(
+  info: AtomMeasurementInfo,
+  atomVectors: AtomVectorSettings | null = null,
+): string {
+  const lines = [
+    `Selection: ${atomMeasurementTitle(info)}`,
+  ];
+
+  for (const atom of info.atoms) {
+    const vectorInfo = atomVectorActualInfoForAtom(atom, info.sceneAtoms, atomVectors);
+    lines.push(
+      "",
+      `Atom ${atomNumberForAtom(atom, info.sceneAtoms)}: ${atomLabelForAtom(atom, info.sceneAtoms)}`,
+      `Element: ${atom.element}`,
+      `Index: ${atomSiteIndex(atom)}`,
+      `Fractional: ${formatAtomCoordinateForCopy(atom.fractionalPosition)}`,
+      `Cartesian (A): ${formatAtomCoordinateForCopy(atom.position)}`,
+      `Cell offset: ${formatCellOffset(atom.imageOffset)}`,
+    );
+
+    if (vectorInfo) {
+      lines.push(
+        `Vector xyz: ${formatAtomVectorForCopy(vectorInfo.vector)}`,
+        `Vector |v|: ${formatAtomVectorLengthForCopy(vectorInfo.length)}`,
+      );
+    }
+  }
+
+  if (info.thirdAtom && info.angleDegrees !== null) {
+    lines.push("", `Angle (deg): ${formatAtomAngleForCopy(info.angleDegrees)}`);
+  }
+
+  if (info.secondAtom && info.delta && info.distance !== null) {
+    lines.push(
+      "",
+      `Distance (A): ${formatAtomDistanceForCopy(info.distance)}`,
+      `Delta x (A): ${formatAtomDistanceForCopy(info.delta[0])}`,
+      `Delta y (A): ${formatAtomDistanceForCopy(info.delta[1])}`,
+      `Delta z (A): ${formatAtomDistanceForCopy(info.delta[2])}`,
+    );
+  }
+
+  return lines.join("\n");
+}
+
+function atomMeasurementTitle(info: AtomMeasurementInfo): string {
+  if (info.atoms.length <= 3) {
+    return info.atoms.map((atom) => atomLabelForAtom(atom, info.sceneAtoms)).join(" -> ");
+  }
+
+  return `${info.atoms.length} atoms selected`;
 }
 
 function formatFixedCoordinate(value: number, digits: number): string {

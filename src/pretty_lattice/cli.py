@@ -14,12 +14,22 @@ import typer
 import uvicorn
 
 from pretty_lattice.server.app import create_app
+from pretty_lattice.structures.charge_density import is_charge_density_filename
 
 HELP_OPTION_NAMES = ["-h", "--help"]
 DEFAULT_PORT = 8765
 AUTO_SHUTDOWN_HEARTBEAT_TIMEOUT_SECONDS = 6.0
 COMMAND_NAMES = {"gui"}
-STRUCTURE_PATH_NAMES = {"CONTCAR", "POSCAR", "STRU"}
+STRUCTURE_PATH_NAMES = {
+    "AECCAR0",
+    "AECCAR1",
+    "AECCAR2",
+    "CHGCAR",
+    "CONTCAR",
+    "PARCHG",
+    "POSCAR",
+    "STRU",
+}
 STRUCTURE_PATH_SUFFIXES = {
     ".cif",
     ".contcar",
@@ -271,6 +281,8 @@ def _rewrite_file_open_args(args: list[str]) -> list[str]:
 def _looks_like_structure_path(value: str) -> bool:
     path = Path(value)
     if path.is_file():
+        return True
+    if is_charge_density_filename(path):
         return True
     if path.name.upper() in STRUCTURE_PATH_NAMES:
         return True

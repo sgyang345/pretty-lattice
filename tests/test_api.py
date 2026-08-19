@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+import pretty_lattice.server.routes as routes_module
 import pretty_lattice.structures.connectivity as connectivity_module
 from pretty_lattice.server.app import create_app
 
@@ -111,6 +112,79 @@ async def test_structure_preview_upload_endpoint_returns_scene() -> None:
             },
         }
         assert "view" not in payload
+
+
+@pytest.mark.anyio
+async def test_structure_preview_upload_endpoint_returns_charge_density_for_chgcar() -> None:
+    payload = (FIXTURE_DIR / "CHGCAR.tiny").read_bytes()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()), base_url="http://testserver"
+    ) as client:
+        response = await client.post(
+            "/api/structure-preview",
+            content=payload,
+            headers={"x-pretty-lattice-filename": "CHGCAR"},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["summary"]["formula"] == "Si"
+    assert body["summary"]["atomCount"] == 1
+    assert body["chargeDensity"]["source"] == "CHGCAR"
+    assert body["chargeDensity"]["grid"] == [2, 2, 2]
+    assert body["chargeDensity"]["dataGrid"] == [2, 2, 2]
+    assert body["chargeDensity"]["dataOrigin"] == [0, 0, 0]
+    assert body["chargeDensity"]["dataStride"] == [1, 1, 1]
+    assert body["chargeDensity"]["mode"] == "total"
+    assert body["chargeDensity"]["unit"] == "e/a0^3"
+    assert body["chargeDensity"]["min"] == pytest.approx(-0.009261544467010174)
+    assert body["chargeDensity"]["max"] == pytest.approx(0.018523088934020347)
+    assert len(body["chargeDensity"]["scalarValues"]) == 8
+    assert body["chargeDensity"]["sampleCount"] > 0
+    assert body["chargeDensity"]["sampleCount"] <= 12000
+    assert len(body["chargeDensity"]["positions"]) == body["chargeDensity"]["sampleCount"]
+    assert len(body["chargeDensity"]["values"]) == body["chargeDensity"]["sampleCount"]
+
+
+@pytest.mark.anyio
+async def test_structure_preview_upload_endpoint_recognizes_chgcar_diff() -> None:
+    payload = (FIXTURE_DIR / "CHGCAR.tiny").read_bytes()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()), base_url="http://testserver"
+    ) as client:
+        response = await client.post(
+            "/api/structure-preview",
+            content=payload,
+            headers={"x-pretty-lattice-filename": "CHGCAR_diff"},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["summary"]["formula"] == "Si"
+    assert body["chargeDensity"]["source"] == "CHGCAR_diff"
+    assert body["chargeDensity"]["grid"] == [2, 2, 2]
+
+
+@pytest.mark.anyio
+async def test_structure_preview_upload_endpoint_detects_volumetric_content() -> None:
+    payload = (FIXTURE_DIR / "CHGCAR.tiny").read_bytes()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app()), base_url="http://testserver"
+    ) as client:
+        response = await client.post(
+            "/api/structure-preview",
+            content=payload,
+            headers={"x-pretty-lattice-filename": "density.dat"},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["summary"]["formula"] == "Si"
+    assert body["chargeDensity"]["source"] == "density.dat"
+    assert body["chargeDensity"]["grid"] == [2, 2, 2]
 
 
 @pytest.mark.anyio
@@ -529,13 +603,17 @@ async def test_structure_preview_upload_endpoint_returns_parse_error() -> None:
 
 
 @pytest.mark.anyio
-async def test_structure_preview_upload_endpoint_rejects_oversized_payload() -> None:
+async def test_structure_preview_upload_endpoint_rejects_oversized_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(routes_module, "MAX_STRUCTURE_UPLOAD_BYTES", 1)
+
     async with AsyncClient(
         transport=ASGITransport(app=create_app()), base_url="http://testserver"
     ) as client:
         response = await client.post(
             "/api/structure-preview",
-            content=b"x" * (1 * 1024 * 1024 + 1),
+            content=b"xx",
             headers={"x-pretty-lattice-filename": "movie.mp4"},
         )
 

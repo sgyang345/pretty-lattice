@@ -7,6 +7,7 @@ import {
   ChevronsUp,
   ClipboardPaste,
   Copy,
+  Eye,
   FileDown,
   FolderOpen,
   ImageDown,
@@ -100,10 +101,12 @@ import {
 } from "./inspector/InspectorSidebar";
 import {
   createDefaultComponentOpacity,
+  createDefaultChargeDensityDisplayState,
   createDefaultComponentVisibility,
   createDefaultAtomVectorSettings,
   createDefaultStyle,
   createPrettyLatticeProject,
+  allCanonicalAtomSiteIds,
   clampDragSensitivity,
   clampLightStrength,
   clampViewScale,
@@ -115,21 +118,34 @@ import {
   elementColorOverridesForStyle,
   type MeshQuality,
   type UnitCellLineStyle,
+  hasChargeDensity,
   hasPolyhedra,
   isPrettyLatticeProjectFileName,
+  normalizeChargeDensityDisplayState,
+  normalizeComponentOpacityState,
+  normalizeComponentVisibilityState,
+  normalizeProjectionMode,
   normalizeAtomVectorSettings,
   parsePrettyLatticeProjectFile,
   prettyLatticeProjectFileName,
   prettyLatticeProjectJson,
+  resetChargeDensityFractionalOffset,
   type AtomVectorSettings,
+  type ChargeDensityDisplayState,
+  type ComponentOpacityState,
+  type ComponentVisibilityState,
   type CrystalCameraState,
   type InteractionMode,
   type PreviewViewState,
+  type StyleState,
   previewSafeAreaForInspector,
   restoreAtomPositionsFromScene,
   sceneOffsetXForInspector,
+  selectedAtomLabelSettingsForScene,
   setAtomSiteFractionalPosition,
+  translateChargeDensityFractionalOffset,
   translateAtomSitesFractional,
+  translateAtomSitesFractionalForBackendRebuild,
   visibleSceneForComponents,
 } from "../model";
 import {
@@ -166,11 +182,16 @@ interface AtomBoxSelectionDrag {
 
 interface PendingFileSaveConflict {
   blob?: Blob;
+  copyImageBlob?: Blob;
   fileName: string;
   kind: "binary" | "project" | "structure";
   path: string;
   text?: string;
   suggestedFileName: string;
+}
+
+interface AtomPositionRebuildOptions {
+  restoreOneHopBondedAtoms?: boolean;
 }
 
 type ResetLoadedPreviewState = (
@@ -193,13 +214,98 @@ const RECIPROCAL_AXIS_LABELS = {
 
 type ClipboardViewState = Pick<
   PreviewViewState,
-  "camera" | "dragSensitivity" | "interactionMode" | "lightStrength" | "viewScale"
+  | "camera"
+  | "dragSensitivity"
+  | "interactionMode"
+  | "lightStrength"
+  | "projectionMode"
+  | "viewScale"
 >;
 
 interface ClipboardViewSettings {
+  display?: ClipboardVisualizationState;
   format: typeof VIEW_SETTINGS_CLIPBOARD_FORMAT;
+  overlays?: ClipboardOverlayState;
   version: typeof VIEW_SETTINGS_CLIPBOARD_VERSION;
   view: ClipboardViewState;
+}
+
+interface ClipboardVisualizationState {
+  chargeDensity?: ChargeDensityDisplayState;
+  opacity?: ComponentOpacityState;
+  previewMeshQuality?: MeshQuality;
+  showCrystalAxisLabels?: boolean;
+  style?: StyleState;
+  unitCellLineStyle?: UnitCellLineStyle;
+  visibility?: ComponentVisibilityState;
+}
+
+interface ClipboardOverlayState {
+  atomVectors?: AtomVectorSettings;
+}
+
+interface ParsedClipboardViewSettings {
+  display: ClipboardVisualizationState;
+  overlays: ClipboardOverlayState;
+  view: ClipboardViewState;
+}
+
+type CopyImageFormat = "jpg" | "png";
+
+function figureExportClipboardBlob(
+  files: FigureExportFile[],
+  format?: CopyImageFormat,
+): Blob | null {
+  return files.find((file) =>
+    file.blob.type.startsWith("image/") && (format === undefined || file.format === format)
+  )?.blob ?? null;
+}
+
+async function copyImageBlobToClipboard(
+  blob: Blob,
+  options: { forcePng?: boolean } = {},
+): Promise<boolean> {
+  if (!blob.type.startsWith("image/")) {
+    return false;
+  }
+
+  if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+    return false;
+  }
+
+  try {
+    const forcePng = options.forcePng ?? true;
+    const clipboardBlob = forcePng && blob.type !== "image/png"
+      ? await imageBlobAsPng(blob)
+      : blob;
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        [clipboardBlob.type]: clipboardBlob,
+      }),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function imageBlobAsPng(blob: Blob): Promise<Blob> {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return blob;
+    }
+    context.drawImage(bitmap, 0, 0);
+    return await new Promise<Blob>((resolve) => {
+      canvas.toBlob((pngBlob) => resolve(pngBlob ?? blob), "image/png");
+    });
+  } finally {
+    bitmap.close();
+  }
 }
 
 function sendSessionHeartbeat() {
@@ -209,15 +315,48 @@ function sendSessionHeartbeat() {
   }).catch(() => {});
 }
 
-function viewSettingsClipboardJson(viewState: PreviewViewState): string {
+function viewSettingsClipboardJson({
+  atomVectors,
+  chargeDensityDisplay,
+  componentOpacity,
+  componentVisibility,
+  previewMeshQuality,
+  showCrystalAxisLabels,
+  style,
+  unitCellLineStyle,
+  viewState,
+}: {
+  atomVectors: AtomVectorSettings;
+  chargeDensityDisplay: ChargeDensityDisplayState;
+  componentOpacity: ComponentOpacityState;
+  componentVisibility: ComponentVisibilityState;
+  previewMeshQuality: MeshQuality;
+  showCrystalAxisLabels: boolean;
+  style: StyleState;
+  unitCellLineStyle: UnitCellLineStyle;
+  viewState: PreviewViewState;
+}): string {
   const viewSettings: ClipboardViewSettings = {
+    display: {
+      chargeDensity: chargeDensityDisplay,
+      opacity: componentOpacity,
+      previewMeshQuality,
+      showCrystalAxisLabels,
+      style,
+      unitCellLineStyle,
+      visibility: componentVisibility,
+    },
     format: VIEW_SETTINGS_CLIPBOARD_FORMAT,
+    overlays: {
+      atomVectors,
+    },
     version: VIEW_SETTINGS_CLIPBOARD_VERSION,
     view: {
       camera: viewState.camera,
       dragSensitivity: viewState.dragSensitivity,
       interactionMode: viewState.interactionMode,
       lightStrength: viewState.lightStrength,
+      projectionMode: viewState.projectionMode,
       viewScale: viewState.viewScale,
     },
   };
@@ -225,18 +364,86 @@ function viewSettingsClipboardJson(viewState: PreviewViewState): string {
   return `${JSON.stringify(viewSettings, null, 2)}\n`;
 }
 
-function parseViewSettingsClipboardText(text: string): ClipboardViewState {
+function parseViewSettingsClipboardText(
+  text: string,
+  scene: SceneSpec,
+): ParsedClipboardViewSettings {
   const value = JSON.parse(text) as unknown;
   if (!isClipboardViewSettings(value)) {
     throw new Error("Clipboard does not contain Pretty Lattice view settings.");
   }
 
   return {
-    ...value.view,
-    dragSensitivity: clampDragSensitivity(value.view.dragSensitivity),
-    lightStrength: clampLightStrength(value.view.lightStrength),
-    viewScale: clampViewScale(value.view.viewScale),
+    display: normalizeClipboardVisualizationState(value.display, scene),
+    overlays: normalizeClipboardOverlayState(value.overlays, scene),
+    view: {
+      ...value.view,
+      dragSensitivity: clampDragSensitivity(value.view.dragSensitivity),
+      lightStrength: clampLightStrength(value.view.lightStrength),
+      projectionMode: normalizeProjectionMode(
+        (value.view as Partial<PreviewViewState>).projectionMode,
+      ),
+      viewScale: clampViewScale(value.view.viewScale),
+    },
   };
+}
+
+function normalizeClipboardVisualizationState(
+  display: ClipboardVisualizationState | undefined,
+  scene: SceneSpec,
+): ClipboardVisualizationState {
+  const visibility = display?.visibility
+    ? normalizeComponentVisibilityState(display.visibility)
+    : undefined;
+  if (visibility) {
+    visibility.atomLabels = selectedAtomLabelSettingsForScene(
+      visibility.atomLabels,
+      scene.atoms,
+    );
+  }
+
+  return {
+    chargeDensity: display?.chargeDensity
+      ? normalizeChargeDensityDisplayState(display.chargeDensity, scene)
+      : undefined,
+    opacity: display?.opacity
+      ? normalizeComponentOpacityState(display.opacity)
+      : undefined,
+    previewMeshQuality: normalizeClipboardMeshQuality(display?.previewMeshQuality),
+    showCrystalAxisLabels:
+      typeof display?.showCrystalAxisLabels === "boolean"
+        ? display.showCrystalAxisLabels
+        : undefined,
+    style: display?.style ? normalizeClipboardStyle(display.style) : undefined,
+    unitCellLineStyle: normalizeClipboardUnitCellLineStyle(display?.unitCellLineStyle),
+    visibility,
+  };
+}
+
+function normalizeClipboardOverlayState(
+  overlays: ClipboardOverlayState | undefined,
+  scene: SceneSpec,
+): ClipboardOverlayState {
+  return {
+    atomVectors: overlays?.atomVectors
+      ? normalizeAtomVectorSettings(overlays.atomVectors, scene)
+      : undefined,
+  };
+}
+
+function normalizeClipboardStyle(style: Partial<StyleState>): StyleState {
+  return {
+    ...createDefaultStyle(),
+    ...style,
+  };
+}
+
+function normalizeClipboardMeshQuality(value: unknown): MeshQuality | undefined {
+  return value === "low" || value === "medium" || value === "high" ? value : undefined;
+}
+
+function normalizeClipboardUnitCellLineStyle(value: unknown): UnitCellLineStyle | undefined {
+  return value === "solid" || value === "dashed" ? value : undefined;
 }
 
 function isClipboardViewSettings(value: unknown): value is ClipboardViewSettings {
@@ -249,6 +456,11 @@ function isClipboardViewSettings(value: unknown): value is ClipboardViewSettings
     isInteractionMode(value.view.interactionMode) &&
     typeof value.view.dragSensitivity === "number" &&
     typeof value.view.lightStrength === "number" &&
+    (
+      value.view.projectionMode === undefined ||
+      value.view.projectionMode === "parallel" ||
+      value.view.projectionMode === "perspective"
+    ) &&
     typeof value.view.viewScale === "number"
   );
 }
@@ -552,22 +764,6 @@ function ViewYawOvalSlider({
         >
           <button
             type="button"
-            aria-label="Rotate view counterclockwise around vertical axis by preset angle"
-            className={cn(
-              TOOL_ICON_BUTTON_CLASS,
-              "relative z-30 grid !rounded-full place-items-center",
-            )}
-            onClick={(event) => {
-              event.stopPropagation();
-              rotateByPreset(-1);
-            }}
-            onPointerDown={(event) => event.stopPropagation()}
-            onWheel={(event) => rotateButtonByWheel(event, -1)}
-          >
-            <ChevronsLeft aria-hidden="true" className="size-3.5" />
-          </button>
-          <button
-            type="button"
             aria-label="Rotate view clockwise around vertical axis by preset angle"
             className={cn(
               TOOL_ICON_BUTTON_CLASS,
@@ -579,6 +775,22 @@ function ViewYawOvalSlider({
             }}
             onPointerDown={(event) => event.stopPropagation()}
             onWheel={(event) => rotateButtonByWheel(event, 1)}
+          >
+            <ChevronsLeft aria-hidden="true" className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Rotate view counterclockwise around vertical axis by preset angle"
+            className={cn(
+              TOOL_ICON_BUTTON_CLASS,
+              "relative z-30 grid !rounded-full place-items-center",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              rotateByPreset(-1);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) => rotateButtonByWheel(event, -1)}
           >
             <ChevronsRight aria-hidden="true" className="size-3.5" />
           </button>
@@ -607,12 +819,44 @@ function normalizePresetAngle(value: number | string): number {
   return Math.min(90, Math.max(1, Math.round(parsedValue)));
 }
 
+function hasSameEntries(firstEntries: readonly string[], secondEntries: readonly string[]): boolean {
+  if (firstEntries.length !== secondEntries.length) {
+    return false;
+  }
+
+  const firstSet = new Set(firstEntries);
+  if (firstSet.size !== secondEntries.length) {
+    return false;
+  }
+
+  return secondEntries.every((entry) => firstSet.has(entry));
+}
+
+function atomPositionRebuildFileName(selectedFileName: string | null): string {
+  const stem = exportFileStem(selectedFileName);
+  const lowerStem = stem.toLowerCase();
+  const safeStem =
+    lowerStem === "chgcar" ||
+    lowerStem.startsWith("chgcar.") ||
+    lowerStem.startsWith("chgcar_") ||
+    lowerStem.startsWith("chgcar-") ||
+    lowerStem.startsWith("parchg") ||
+    lowerStem.startsWith("aeccar")
+      ? `structure-${stem}`
+      : stem;
+
+  return `${safeStem}-positions.vasp`;
+}
+
 export function App() {
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [componentVisibility, setComponentVisibility] = useState(
     createDefaultComponentVisibility,
   );
   const [componentOpacity, setComponentOpacity] = useState(createDefaultComponentOpacity);
+  const [chargeDensityDisplay, setChargeDensityDisplay] = useState(
+    createDefaultChargeDensityDisplayState,
+  );
   const [style, setStyle] = useState(createDefaultStyle);
   const [previewMeshQuality, setPreviewMeshQuality] = useState<MeshQuality>(
     () => defaultPreviewMeshQualityForScene(null),
@@ -632,6 +876,7 @@ export function App() {
   const [atomBoxSelection, setAtomBoxSelection] = useState<AtomBoxSelectionDrag | null>(null);
   const [pulseAtom, setPulseAtom] = useState<{ atomId: string; token: number } | null>(null);
   const [saveProjectMessage, setSaveProjectMessage] = useState<string | null>(null);
+  const [copyImageMessage, setCopyImageMessage] = useState<string | null>(null);
   const [viewSettingsMessage, setViewSettingsMessage] = useState<string | null>(null);
   const [pendingFileSaveConflict, setPendingFileSaveConflict] =
     useState<PendingFileSaveConflict | null>(null);
@@ -644,6 +889,7 @@ export function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const atomBoxSelectionSnapshotRef = useRef<AtomBoxSelectionSnapshot | null>(null);
   const atomPositionBaselineSceneRef = useRef<SceneSpec | null>(null);
+  const atomPositionRestoreOneHopAfterRebuildRef = useRef(false);
   const atomPositionRebuildSceneRef = useRef<SceneSpec | null>(null);
   const atomPositionRebuildTimeoutRef = useRef<number | null>(null);
   const inspectedAtomIdRef = useRef<string | null>(null);
@@ -690,12 +936,14 @@ export function App() {
   }, [clearAtomSelection]);
   const handlePreviewCleared = useCallback(() => {
     atomPositionBaselineSceneRef.current = null;
+    atomPositionRestoreOneHopAfterRebuildRef.current = false;
     clearAtomSelection();
     setIsInspectorOpen(false);
     setIsStructureSummaryCollapsed(true);
   }, [clearAtomSelection]);
   const handleBondAlgorithmSceneLoaded = useCallback((nextScene: SceneSpec) => {
     atomPositionBaselineSceneRef.current = nextScene;
+    atomPositionRestoreOneHopAfterRebuildRef.current = false;
     clearAtomSelection();
     setPreviewMeshQuality(defaultPreviewMeshQualityForScene(nextScene));
     setUnitCellLineStyle(DEFAULT_UNIT_CELL_LINE_STYLE);
@@ -816,6 +1064,7 @@ export function App() {
     handleInteractionLockedChange,
     handleInteractionModeChange,
     handleLightStrengthChange,
+    handleProjectionModeChange,
     handleResetView,
     handleShowFpsOverlayChange,
     isCameraCommandAnimationActive,
@@ -852,6 +1101,11 @@ export function App() {
       throw new Error("No export files were generated.");
     }
 
+    const copyImageBlob = figureExportClipboardBlob(files);
+    if (copyImageBlob) {
+      await copyImageBlobToClipboard(copyImageBlob);
+    }
+
     const fileName =
       files.length === 1
         ? files[0]!.fileName
@@ -883,6 +1137,7 @@ export function App() {
           setSaveProjectMessage(null);
           setPendingFileSaveConflict({
             blob,
+            copyImageBlob: copyImageBlob ?? undefined,
             fileName,
             kind: "binary",
             path: targetPath,
@@ -901,10 +1156,29 @@ export function App() {
     setErrorMessage,
   ]);
 
+  const handleCopyFigureImageFiles = useCallback(async (
+    files: FigureExportFile[],
+    format: CopyImageFormat,
+  ) => {
+    const copyImageBlob = figureExportClipboardBlob(files, format);
+    if (!copyImageBlob) {
+      return false;
+    }
+
+    const copied = await copyImageBlobToClipboard(copyImageBlob);
+    if (copied) {
+      setCopyImageMessage(`${format.toUpperCase()} image copied to clipboard.`);
+      setErrorMessage(null);
+    }
+    return copied;
+  }, [setErrorMessage]);
+
   const {
     exportError,
     exportProjectedSize,
     exportSettings,
+    copyingImageFormat,
+    handleCopyImageFigure,
     handleExportFigure,
     handleExportSettingsChange,
     isExporting,
@@ -914,10 +1188,13 @@ export function App() {
   } = useFigureExportController({
     atomVectors,
     cameraOrientationRef,
+    chargeDensityDisplay,
     componentOpacity,
     componentVisibility,
     lightStrength: viewState.lightStrength,
+    onCopyImageFiles: handleCopyFigureImageFiles,
     onExportFiles: handleFigureExportFiles,
+    projectionMode: viewState.projectionMode,
     scene,
     selectedFileName,
     showCrystalAxisLabels,
@@ -952,8 +1229,18 @@ export function App() {
     try {
       await navigator.clipboard.writeText(
         viewSettingsClipboardJson({
-          ...viewState,
-          viewScale: cameraInteractionStore.getViewScaleSnapshot(),
+          atomVectors,
+          chargeDensityDisplay,
+          componentOpacity,
+          componentVisibility,
+          previewMeshQuality,
+          showCrystalAxisLabels,
+          style,
+          unitCellLineStyle,
+          viewState: {
+            ...viewState,
+            viewScale: cameraInteractionStore.getViewScaleSnapshot(),
+          },
         }),
       );
       setViewSettingsMessage("View settings copied.");
@@ -961,7 +1248,20 @@ export function App() {
     } catch {
       setErrorMessage("View settings could not be copied.");
     }
-  }, [cameraInteractionStore, scene, setErrorMessage, viewState]);
+  }, [
+    atomVectors,
+    cameraInteractionStore,
+    chargeDensityDisplay,
+    componentOpacity,
+    componentVisibility,
+    previewMeshQuality,
+    scene,
+    setErrorMessage,
+    showCrystalAxisLabels,
+    style,
+    unitCellLineStyle,
+    viewState,
+  ]);
 
   const handlePasteViewSettings = useCallback(async () => {
     if (!scene) {
@@ -974,18 +1274,49 @@ export function App() {
     }
 
     try {
-      const clipboardView = parseViewSettingsClipboardText(
+      const clipboardSettings = parseViewSettingsClipboardText(
         await navigator.clipboard.readText(),
+        scene,
       );
       restoreViewStateForScene(
         {
           ...viewState,
-          ...clipboardView,
+          ...clipboardSettings.view,
           interactionLocked: false,
           showFpsOverlay: viewState.showFpsOverlay,
         },
         scene,
       );
+      if (clipboardSettings.display.visibility) {
+        setComponentVisibility((currentVisibility) => ({
+          ...clipboardSettings.display.visibility!,
+          supercell: currentVisibility.supercell,
+        }));
+      }
+      if (clipboardSettings.display.opacity) {
+        setComponentOpacity(clipboardSettings.display.opacity);
+      }
+      if (clipboardSettings.display.chargeDensity) {
+        setChargeDensityDisplay((currentDisplay) => ({
+          ...clipboardSettings.display.chargeDensity!,
+          fractionalOffset: currentDisplay.fractionalOffset,
+        }));
+      }
+      if (clipboardSettings.display.style) {
+        setStyle(clipboardSettings.display.style);
+      }
+      if (clipboardSettings.display.previewMeshQuality) {
+        setPreviewMeshQuality(clipboardSettings.display.previewMeshQuality);
+      }
+      if (clipboardSettings.display.unitCellLineStyle) {
+        setUnitCellLineStyle(clipboardSettings.display.unitCellLineStyle);
+      }
+      if (clipboardSettings.display.showCrystalAxisLabels !== undefined) {
+        setShowCrystalAxisLabels(clipboardSettings.display.showCrystalAxisLabels);
+      }
+      if (clipboardSettings.overlays.atomVectors) {
+        setAtomVectors(clipboardSettings.overlays.atomVectors);
+      }
       setViewSettingsMessage("View settings applied.");
       setErrorMessage(null);
     } catch (error) {
@@ -1023,6 +1354,7 @@ export function App() {
       options: ResetLoadedPreviewOptions = {},
     ) => {
       setErrorMessage(null);
+      atomPositionRestoreOneHopAfterRebuildRef.current = false;
       if (!options.preserveActiveCommonPanelTab && !options.preserveInspectorOpen) {
         atomPositionBaselineSceneRef.current = nextScene;
       } else if (nextScene === null) {
@@ -1035,6 +1367,7 @@ export function App() {
       }
       setComponentVisibility(createDefaultComponentVisibility(nextScene));
       setComponentOpacity(createDefaultComponentOpacity());
+      setChargeDensityDisplay(createDefaultChargeDensityDisplayState(nextScene));
       setStyle(createDefaultStyle());
       setPreviewMeshQuality(defaultPreviewMeshQualityForScene(nextScene));
       setUnitCellLineStyle(DEFAULT_UNIT_CELL_LINE_STYLE);
@@ -1182,14 +1515,15 @@ export function App() {
     });
     const rebuildFile = new File(
       [exportFile.text],
-      exportFile.fileName.replace(/\.vasp$/i, "-positions.vasp"),
+      atomPositionRebuildFileName(selectedFileName),
       { type: "chemical/x-poscar" },
     );
 
-    const rebuilt = await rebuildCurrentStructurePreview(rebuildFile);
-    if (rebuilt) {
+    const rebuiltScene = await rebuildCurrentStructurePreview(rebuildFile);
+    if (rebuiltScene) {
       setErrorMessage(null);
     }
+    return rebuiltScene;
   }, [
     rebuildCurrentStructurePreview,
     selectedFileName,
@@ -1197,8 +1531,14 @@ export function App() {
   ]);
 
   const scheduleAtomPositionRebuild = useCallback(
-    (nextScene: SceneSpec) => {
+    (
+      nextScene: SceneSpec,
+      options: AtomPositionRebuildOptions = {},
+    ) => {
       atomPositionRebuildSceneRef.current = nextScene;
+      if (options.restoreOneHopBondedAtoms) {
+        atomPositionRestoreOneHopAfterRebuildRef.current = true;
+      }
       if (atomPositionRebuildTimeoutRef.current !== null) {
         window.clearTimeout(atomPositionRebuildTimeoutRef.current);
       }
@@ -1208,11 +1548,30 @@ export function App() {
         const sceneToRebuild = atomPositionRebuildSceneRef.current;
         atomPositionRebuildSceneRef.current = null;
         if (sceneToRebuild) {
-          void rebuildStructureFromAtomPositions(sceneToRebuild);
+          const shouldRestoreOneHop =
+            atomPositionRestoreOneHopAfterRebuildRef.current;
+          atomPositionRestoreOneHopAfterRebuildRef.current = false;
+          void rebuildStructureFromAtomPositions(sceneToRebuild).then((rebuiltScene) => {
+            if (!rebuiltScene) {
+              if (shouldRestoreOneHop) {
+                atomPositionRestoreOneHopAfterRebuildRef.current = true;
+              }
+              return;
+            }
+
+            atomPositionBaselineSceneRef.current = rebuiltScene;
+            setScene(rebuiltScene);
+            if (shouldRestoreOneHop) {
+              setComponentVisibility((currentVisibility) => ({
+                ...currentVisibility,
+                oneHopBondedAtoms: true,
+              }));
+            }
+          });
         }
       }, ATOM_POSITION_REBUILD_DEBOUNCE_MS);
     },
-    [rebuildStructureFromAtomPositions],
+    [rebuildStructureFromAtomPositions, setComponentVisibility, setScene],
   );
 
   const handleAtomPositionSetFractional = useCallback(
@@ -1226,6 +1585,7 @@ export function App() {
           currentScene,
           siteId,
           fractionalPosition,
+          atomPositionBaselineSceneRef.current ?? currentScene,
         );
         scheduleAtomPositionRebuild(nextScene);
         return nextScene;
@@ -1241,12 +1601,47 @@ export function App() {
           return currentScene;
         }
 
-        const nextScene = translateAtomSitesFractional(currentScene, siteIds, delta);
-        scheduleAtomPositionRebuild(nextScene);
+        const canonicalSiteIds = allCanonicalAtomSiteIds(currentScene.atoms);
+        const isWholeStructureTranslation = hasSameEntries(siteIds, canonicalSiteIds);
+        const shouldRestoreOneHopBondedAtoms =
+          isWholeStructureTranslation &&
+          (
+            componentVisibility.oneHopBondedAtoms ||
+            atomPositionRestoreOneHopAfterRebuildRef.current
+          );
+        if (isWholeStructureTranslation && componentVisibility.oneHopBondedAtoms) {
+          setComponentVisibility((currentVisibility) =>
+            currentVisibility.oneHopBondedAtoms
+              ? { ...currentVisibility, oneHopBondedAtoms: false }
+              : currentVisibility,
+          );
+        }
+
+        const nextScene = isWholeStructureTranslation
+          ? translateAtomSitesFractionalForBackendRebuild(currentScene, siteIds, delta)
+          : translateAtomSitesFractional(
+              currentScene,
+              siteIds,
+              delta,
+              atomPositionBaselineSceneRef.current ?? currentScene,
+            );
+        if (isWholeStructureTranslation) {
+          setChargeDensityDisplay((currentDisplay) =>
+            translateChargeDensityFractionalOffset(currentDisplay, delta),
+          );
+        }
+        scheduleAtomPositionRebuild(nextScene, {
+          restoreOneHopBondedAtoms: shouldRestoreOneHopBondedAtoms,
+        });
         return nextScene;
       });
     },
-    [scheduleAtomPositionRebuild, setScene],
+    [
+      componentVisibility.oneHopBondedAtoms,
+      scheduleAtomPositionRebuild,
+      setComponentVisibility,
+      setScene,
+    ],
   );
 
   const handleAtomPositionReset = useCallback(() => {
@@ -1255,6 +1650,7 @@ export function App() {
       atomPositionRebuildTimeoutRef.current = null;
     }
     atomPositionRebuildSceneRef.current = null;
+    atomPositionRestoreOneHopAfterRebuildRef.current = false;
 
     setScene((currentScene) =>
       currentScene
@@ -1263,6 +1659,9 @@ export function App() {
             atomPositionBaselineSceneRef.current,
           )
         : currentScene,
+    );
+    setChargeDensityDisplay((currentDisplay) =>
+      resetChargeDensityFractionalOffset(currentDisplay),
     );
   }, [setScene]);
 
@@ -1443,6 +1842,7 @@ export function App() {
     const project = createPrettyLatticeProject({
       atomVectors,
       bondAlgorithm,
+      chargeDensityDisplay,
       componentOpacity,
       componentVisibility,
       exportSettings,
@@ -1503,6 +1903,7 @@ export function App() {
   }, [
     atomVectors,
     bondAlgorithm,
+    chargeDensityDisplay,
     cameraInteractionStore,
     canSaveProjectToStartupPath,
     componentOpacity,
@@ -1584,6 +1985,10 @@ export function App() {
     }
 
     try {
+      if (pendingFileSaveConflict.copyImageBlob) {
+        await copyImageBlobToClipboard(pendingFileSaveConflict.copyImageBlob);
+      }
+
       const savedFile =
         pendingFileSaveConflict.kind === "project"
           ? await saveStartupProjectFile(pendingFileSaveConflict.text ?? "", { overwrite: true })
@@ -1607,7 +2012,7 @@ export function App() {
     }
   }, [pendingFileSaveConflict, setErrorMessage, setExportError]);
 
-  const handleDownloadFileConflict = useCallback(() => {
+  const handleDownloadFileConflict = useCallback(async () => {
     if (!pendingFileSaveConflict) {
       return;
     }
@@ -1623,6 +2028,10 @@ export function App() {
           });
     if (!blob) {
       return;
+    }
+
+    if (pendingFileSaveConflict.copyImageBlob) {
+      await copyImageBlobToClipboard(pendingFileSaveConflict.copyImageBlob);
     }
 
     downloadBlob(blob, pendingFileSaveConflict.suggestedFileName);
@@ -1647,6 +2056,20 @@ export function App() {
       window.clearTimeout(timeoutId);
     };
   }, [saveProjectMessage]);
+
+  useEffect(() => {
+    if (!copyImageMessage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCopyImageMessage(null);
+    }, SAVE_PROJECT_MESSAGE_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [copyImageMessage]);
 
   useEffect(() => {
     if (!viewSettingsMessage) {
@@ -1675,6 +2098,10 @@ export function App() {
         loadProjectPreview(project, fileName, { source: options.source });
         setComponentVisibility(project.display.visibility);
         setComponentOpacity(project.display.opacity);
+        setChargeDensityDisplay(
+          project.display.chargeDensity ??
+            createDefaultChargeDensityDisplayState(projectScene),
+        );
         setStyle(project.display.style);
         setPreviewMeshQuality(project.display.previewMeshQuality);
         setUnitCellLineStyle(project.display.unitCellLineStyle);
@@ -1761,7 +2188,7 @@ export function App() {
     [effectivePreviewSafeArea, viewportSize],
   );
   const renderPreviewContextMenuContent = () => (
-    <ContextMenuContent className="w-40">
+    <ContextMenuContent className="w-44">
       <ContextMenuGroup>
         <ContextMenuItem
           disabled={!scene || previewStatus === "loading"}
@@ -1797,13 +2224,46 @@ export function App() {
           </ContextMenuItem>
         ))}
         <ContextMenuItem
-          disabled={!scene || isExporting || previewStatus === "loading"}
+          disabled={
+            !scene ||
+            isExporting ||
+            copyingImageFormat !== null ||
+            previewStatus === "loading"
+          }
           onSelect={() => {
             void handleExportFigure();
           }}
         >
           <ImageDown aria-hidden="true" />
           Export figure
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={
+            !scene ||
+            isExporting ||
+            copyingImageFormat !== null ||
+            previewStatus === "loading"
+          }
+          onSelect={() => {
+            void handleCopyImageFigure("png");
+          }}
+        >
+          <Copy aria-hidden="true" />
+          Copy PNG image
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={
+            !scene ||
+            isExporting ||
+            copyingImageFormat !== null ||
+            previewStatus === "loading"
+          }
+          onSelect={() => {
+            void handleCopyImageFigure("jpg");
+          }}
+        >
+          <Copy aria-hidden="true" />
+          Copy JPG image
         </ContextMenuItem>
       </ContextMenuGroup>
       <ContextMenuSeparator />
@@ -1953,11 +2413,13 @@ export function App() {
                 resetCounter={viewState.resetCounter}
                 safeArea={previewSafeArea}
                 scene={displayScene}
+                chargeDensityDisplay={chargeDensityDisplay}
                 inspectedAtomId={isBrillouinZoneView ? null : inspectedAtomId}
                 inspectedKPointIds={inspectedKPointIds}
                 measuredAtomIds={isBrillouinZoneView ? [] : measuredAtomIds}
                 pulseAtomId={isBrillouinZoneView ? null : pulseAtom?.atomId ?? null}
                 pulseToken={isBrillouinZoneView ? 0 : pulseAtom?.token ?? 0}
+                projectionMode={viewState.projectionMode}
                 previewMeshQuality={previewMeshQuality}
                 componentOpacity={componentOpacity}
                 dragSensitivity={viewState.dragSensitivity}
@@ -2083,13 +2545,18 @@ export function App() {
               activeTab={activeCommonPanelTab}
               cameraState={cameraControlsPanelState}
               cellVectors={scene.cell.vectors}
+              chargeDensityDisplay={chargeDensityDisplay}
+              chargeDensity={scene.chargeDensity}
               componentOpacity={componentOpacity}
+              projectionMode={viewState.projectionMode}
               style={style}
               exportProjectedSize={exportProjectedSize ?? undefined}
               componentVisibility={componentVisibility}
               exportError={exportError}
               exportSettings={exportSettings}
+              hasChargeDensity={hasChargeDensity(scene)}
               hasPolyhedra={hasPolyhedra(scene)}
+              copyingImageFormat={copyingImageFormat}
               isExporting={isExporting}
               sceneAtoms={scene.atoms}
               selectedAtomSiteIds={selectedAtomSiteIds}
@@ -2108,9 +2575,12 @@ export function App() {
               onCameraRollChange={handleCameraRollChange}
               onCameraSecondaryChange={handleCameraSecondaryChange}
               onCameraStateChange={handleCameraStateChange}
+              onProjectionModeChange={handleProjectionModeChange}
               onAtomVectorsChange={setAtomVectors}
+              onChargeDensityDisplayChange={setChargeDensityDisplay}
               onComponentOpacityChange={setComponentOpacity}
               onExport={handleExportFigure}
+              onCopyImage={handleCopyImageFigure}
               onExportSettingsChange={handleExportSettingsChange}
               onStyleChange={setStyle}
               onComponentVisibilityChange={setComponentVisibility}
@@ -2146,6 +2616,21 @@ export function App() {
           <FileDown aria-hidden="true" />
           <AlertTitle className="font-semibold">File saved</AlertTitle>
           <AlertDescription className="break-all">{saveProjectMessage}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {copyImageMessage ? (
+        <Alert
+          className={cn(
+            "absolute top-4 z-[100] min-w-[320px] max-w-[min(720px,calc(100vw-2rem))] rounded-xl shadow-sm shadow-foreground/5",
+            scene ? "right-[386px]" : "right-[328px]",
+            "max-[760px]:left-4 max-[760px]:right-4 max-[760px]:top-[10rem] max-[760px]:w-auto",
+          )}
+          onDismiss={() => setCopyImageMessage(null)}
+        >
+          <Copy aria-hidden="true" />
+          <AlertTitle className="font-semibold">Image copied</AlertTitle>
+          <AlertDescription className="break-all">{copyImageMessage}</AlertDescription>
         </Alert>
       ) : null}
 
@@ -2223,6 +2708,42 @@ export function App() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">Brillouin zone</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={
+                    viewState.projectionMode === "parallel"
+                      ? "Switch to Perspective view"
+                      : "Switch to Parallel view"
+                  }
+                  aria-pressed={viewState.projectionMode === "perspective"}
+                  className={cn(
+                    TOOL_ICON_BUTTON_CLASS,
+                    "absolute left-[10.5rem] top-4 z-30 size-8 rounded-[10px] [&_svg]:size-4",
+                    viewState.projectionMode === "perspective"
+                      ? TOOL_ICON_BUTTON_ACTIVE_CLASS
+                      : "border-foreground/10 bg-card/80 backdrop-blur-xl backdrop-saturate-150",
+                  )}
+                  onClick={() => {
+                    handleProjectionModeChange(
+                      viewState.projectionMode === "parallel"
+                        ? "perspective"
+                        : "parallel",
+                    );
+                  }}
+                >
+                  <Eye aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {viewState.projectionMode === "parallel"
+                  ? "Perspective view"
+                  : "Parallel view"}
+              </TooltipContent>
             </Tooltip>
             <div className="absolute left-14 top-4 z-30 flex h-8 overflow-hidden rounded-[10px] border border-foreground/10 bg-card/80 shadow-sm shadow-foreground/5 backdrop-blur-xl backdrop-saturate-150">
               <Tooltip>

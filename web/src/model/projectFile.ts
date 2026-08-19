@@ -1,13 +1,24 @@
 import type { BondAlgorithm, SceneSpec } from "../api/scene";
 import type {
+  ChargeDensityDisplayState,
   ComponentOpacityState,
   ComponentVisibilityState,
 } from "./displayState";
-import { normalizeComponentVisibilityState } from "./displayState";
+import {
+  normalizeChargeDensityDisplayState,
+  normalizeComponentOpacityState,
+  normalizeComponentVisibilityState,
+} from "./displayState";
 import type { ExportSettingsState, MeshQuality } from "./exportSettings";
 import type { StyleState } from "./appearance";
 import type { UnitCellLineStyle } from "./rendering";
 import type { PreviewViewState } from "./viewState";
+import {
+  clampDragSensitivity,
+  clampLightStrength,
+  clampViewScale,
+  normalizeProjectionMode,
+} from "./viewState";
 import {
   createDefaultAtomVectorSettings,
   normalizeAtomVectorSettings,
@@ -19,6 +30,7 @@ export const PRETTY_LATTICE_PROJECT_VERSION = 1;
 
 export interface PrettyLatticeProjectFile {
   display: {
+    chargeDensity?: ChargeDensityDisplayState;
     opacity: ComponentOpacityState;
     previewMeshQuality: MeshQuality;
     showCrystalAxisLabels: boolean;
@@ -48,6 +60,7 @@ export interface CreatePrettyLatticeProjectOptions {
   bondAlgorithm: BondAlgorithm;
   componentOpacity: ComponentOpacityState;
   componentVisibility: ComponentVisibilityState;
+  chargeDensityDisplay?: ChargeDensityDisplayState;
   exportSettings: ExportSettingsState;
   previewMeshQuality: MeshQuality;
   scene: SceneSpec;
@@ -63,6 +76,7 @@ export function createPrettyLatticeProject({
   bondAlgorithm,
   componentOpacity,
   componentVisibility,
+  chargeDensityDisplay,
   exportSettings,
   previewMeshQuality,
   scene,
@@ -78,6 +92,7 @@ export function createPrettyLatticeProject({
 
   return {
     display: {
+      chargeDensity: normalizeChargeDensityDisplayState(chargeDensityDisplay, scene),
       opacity: componentOpacity,
       previewMeshQuality,
       showCrystalAxisLabels,
@@ -157,6 +172,11 @@ function normalizePrettyLatticeProjectFile(
     ...project,
     display: {
       ...project.display,
+      chargeDensity: normalizeChargeDensityDisplayState(
+        project.display.chargeDensity,
+        project.structure.scene,
+      ),
+      opacity: normalizeComponentOpacityState(project.display.opacity),
       visibility: normalizeComponentVisibilityState(project.display.visibility),
     },
     overlays: {
@@ -166,6 +186,19 @@ function normalizePrettyLatticeProjectFile(
         project.structure.scene,
       ),
     },
+    view: normalizeProjectViewState(project.view),
+  };
+}
+
+function normalizeProjectViewState(view: PreviewViewState): PreviewViewState {
+  return {
+    ...view,
+    dragSensitivity: clampDragSensitivity(view.dragSensitivity),
+    lightStrength: clampLightStrength(view.lightStrength),
+    projectionMode: normalizeProjectionMode(
+      (view as Partial<PreviewViewState>).projectionMode,
+    ),
+    viewScale: clampViewScale(view.viewScale),
   };
 }
 

@@ -303,10 +303,14 @@ export function stateWithDirectAxis(
   vectors: VectorTuple[],
   state: CrystalCameraState,
   axis: CrystalAxisLabel,
+  direction: 1 | -1 = 1,
 ): CrystalCameraState {
+  const direct = crystalAxisDirectCoefficients(axis).map(
+    (coefficient) => coefficient * direction,
+  ) as VectorTuple;
   const nextState = {
     ...state,
-    direct: crystalAxisDirectCoefficients(axis),
+    direct,
     secondary: defaultSecondaryDirectionForPrimary(state.primary),
   };
 

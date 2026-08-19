@@ -16,6 +16,7 @@ export interface ComponentVisibilityState {
   unitCell: boolean;
   bonds: boolean;
   polyhedra: boolean;
+  chargeDensity: boolean;
   brillouinZone: boolean;
   boundaryAtoms: boolean;
   oneHopBondedAtoms: boolean;
@@ -60,6 +61,7 @@ export const DEFAULT_COMPONENT_VISIBILITY: ComponentVisibilityState = {
   unitCell: true,
   bonds: true,
   polyhedra: false,
+  chargeDensity: true,
   brillouinZone: false,
   boundaryAtoms: true,
   oneHopBondedAtoms: true,
@@ -71,13 +73,33 @@ export interface ComponentOpacityState {
   unitCell: number;
   bonds: number;
   polyhedra: number;
+  chargeDensity: number;
 }
+
+export interface ChargeDensityDisplayState {
+  boundaryColor: string;
+  boundaryFillOpacity: number;
+  fractionalOffset: [number, number, number];
+  interpolationFactor: number;
+  isoValue: number;
+  negativeColor: string;
+  positiveColor: string;
+  sectionAxis: ChargeDensitySectionAxis;
+  sectionEnabled: boolean;
+  sectionOpacity: number;
+  sectionPosition: number;
+  surfaceMode: ChargeDensitySurfaceMode;
+}
+
+export type ChargeDensitySectionAxis = "a" | "b" | "c";
+export type ChargeDensitySurfaceMode = "both" | "positive" | "negative";
 
 export const DEFAULT_COMPONENT_OPACITY: ComponentOpacityState = {
   atoms: 100,
   unitCell: 100,
   bonds: 100,
-  polyhedra: 75,
+  polyhedra: 50,
+  chargeDensity: 70,
 };
 
 export const COMPONENT_OPACITY_MAX: ComponentOpacityState = {
@@ -85,7 +107,25 @@ export const COMPONENT_OPACITY_MAX: ComponentOpacityState = {
   unitCell: 100,
   bonds: 100,
   polyhedra: 100,
+  chargeDensity: 100,
 };
+export const DEFAULT_CHARGE_DENSITY_POSITIVE_COLOR = "#ff5f66";
+export const DEFAULT_CHARGE_DENSITY_NEGATIVE_COLOR = "#6673ff";
+export const DEFAULT_CHARGE_DENSITY_BOUNDARY_COLOR = "#6f737a";
+export const CHARGE_DENSITY_BOHR_RADIUS_ANGSTROM = 0.529177210903;
+export const CHARGE_DENSITY_ANGSTROM3_PER_BOHR3 =
+  CHARGE_DENSITY_BOHR_RADIUS_ANGSTROM ** 3;
+export const CHARGE_DENSITY_INTERPOLATION_FACTORS = [1, 1.5, 2] as const;
+export type ChargeDensityInterpolationFactor =
+  (typeof CHARGE_DENSITY_INTERPOLATION_FACTORS)[number];
+export const CHARGE_DENSITY_SECTION_POSITION_MIN = 0;
+export const CHARGE_DENSITY_SECTION_POSITION_MAX = 100;
+export const CHARGE_DENSITY_SECTION_OPACITY_MIN = 0;
+export const CHARGE_DENSITY_SECTION_OPACITY_MAX = 100;
+export const DEFAULT_CHARGE_DENSITY_SECTION_OPACITY = 28;
+export const CHARGE_DENSITY_BOUNDARY_FILL_OPACITY_MIN = 0;
+export const CHARGE_DENSITY_BOUNDARY_FILL_OPACITY_MAX = 100;
+export const DEFAULT_CHARGE_DENSITY_BOUNDARY_FILL_OPACITY = 0;
 
 export function createDefaultComponentVisibility(
   _scene: SceneSpec | null = null,
@@ -164,6 +204,285 @@ export function createDefaultComponentOpacity(): ComponentOpacityState {
   return { ...DEFAULT_COMPONENT_OPACITY };
 }
 
+export function createDefaultChargeDensityDisplayState(
+  scene: SceneSpec | null = null,
+): ChargeDensityDisplayState {
+  return {
+    boundaryColor: DEFAULT_CHARGE_DENSITY_BOUNDARY_COLOR,
+    boundaryFillOpacity: DEFAULT_CHARGE_DENSITY_BOUNDARY_FILL_OPACITY,
+    fractionalOffset: [0, 0, 0],
+    interpolationFactor: 1,
+    isoValue: defaultChargeDensityIsoValue(scene),
+    negativeColor: DEFAULT_CHARGE_DENSITY_NEGATIVE_COLOR,
+    positiveColor: DEFAULT_CHARGE_DENSITY_POSITIVE_COLOR,
+    sectionAxis: "c",
+    sectionEnabled: false,
+    sectionOpacity: DEFAULT_CHARGE_DENSITY_SECTION_OPACITY,
+    sectionPosition: 50,
+    surfaceMode: "both",
+  };
+}
+
+export function normalizeChargeDensityDisplayState(
+  settings: Partial<ChargeDensityDisplayState> | null | undefined,
+  scene: SceneSpec | null = null,
+): ChargeDensityDisplayState {
+  const legacyIsoLevel = (settings as { isoLevel?: unknown } | null | undefined)?.isoLevel;
+  const isoValue =
+    settings?.isoValue ??
+    (legacyIsoLevel === undefined
+      ? undefined
+      : chargeDensityIsoValueFromLevel(legacyIsoLevel, scene));
+  return {
+    ...createDefaultChargeDensityDisplayState(scene),
+    boundaryColor: normalizeChargeDensityColor(
+      settings?.boundaryColor,
+      DEFAULT_CHARGE_DENSITY_BOUNDARY_COLOR,
+    ),
+    boundaryFillOpacity: normalizeChargeDensityBoundaryFillOpacity(
+      settings?.boundaryFillOpacity,
+    ),
+    fractionalOffset: normalizeChargeDensityFractionalOffset(
+      settings?.fractionalOffset,
+    ),
+    interpolationFactor: normalizeChargeDensityInterpolationFactor(
+      settings?.interpolationFactor,
+    ),
+    isoValue: normalizeChargeDensityIsoValue(isoValue, scene),
+    negativeColor: normalizeChargeDensityColor(
+      settings?.negativeColor,
+      DEFAULT_CHARGE_DENSITY_NEGATIVE_COLOR,
+    ),
+    positiveColor: normalizeChargeDensityColor(
+      settings?.positiveColor,
+      DEFAULT_CHARGE_DENSITY_POSITIVE_COLOR,
+    ),
+    sectionAxis: normalizeChargeDensitySectionAxis(settings?.sectionAxis),
+    sectionEnabled: settings?.sectionEnabled === true,
+    sectionOpacity: normalizeChargeDensitySectionOpacity(settings?.sectionOpacity),
+    sectionPosition: normalizeChargeDensitySectionPosition(settings?.sectionPosition),
+    surfaceMode: normalizeChargeDensitySurfaceMode(settings?.surfaceMode),
+  };
+}
+
+export function translateChargeDensityFractionalOffset(
+  settings: ChargeDensityDisplayState,
+  delta: [number, number, number],
+): ChargeDensityDisplayState {
+  return {
+    ...settings,
+    fractionalOffset: wrapFractionalTuple([
+      settings.fractionalOffset[0] + delta[0],
+      settings.fractionalOffset[1] + delta[1],
+      settings.fractionalOffset[2] + delta[2],
+    ]),
+  };
+}
+
+export function resetChargeDensityFractionalOffset(
+  settings: ChargeDensityDisplayState,
+): ChargeDensityDisplayState {
+  if (tupleNearZero(settings.fractionalOffset)) {
+    return settings;
+  }
+
+  return {
+    ...settings,
+    fractionalOffset: [0, 0, 0],
+  };
+}
+
+export function normalizeChargeDensityInterpolationFactor(
+  value: unknown,
+): ChargeDensityInterpolationFactor {
+  const numericValue = Number(value);
+  return CHARGE_DENSITY_INTERPOLATION_FACTORS.find(
+    (factor) => Math.abs(factor - numericValue) < 1e-8,
+  ) ?? 1;
+}
+
+export function normalizeChargeDensityFractionalOffset(
+  value: unknown,
+): [number, number, number] {
+  if (!Array.isArray(value) || value.length !== 3) {
+    return [0, 0, 0];
+  }
+
+  return wrapFractionalTuple([
+    Number(value[0]),
+    Number(value[1]),
+    Number(value[2]),
+  ]);
+}
+
+export function normalizeChargeDensityIsoValue(
+  value: unknown,
+  scene: SceneSpec | null = null,
+): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return defaultChargeDensityIsoValue(scene);
+  }
+
+  const maxAbsValue = maxAbsChargeDensityValue(scene);
+  if (maxAbsValue <= 0) {
+    return Math.max(0, numericValue);
+  }
+
+  return Math.min(maxAbsValue, Math.max(0, numericValue));
+}
+
+export function chargeDensityValueToVestaUnit(
+  value: number,
+  sourceUnit: string | null | undefined,
+): number {
+  return chargeDensityUnitKind(sourceUnit) === "angstrom"
+    ? value * CHARGE_DENSITY_ANGSTROM3_PER_BOHR3
+    : value;
+}
+
+export function chargeDensityValueFromVestaUnit(
+  value: number,
+  targetUnit: string | null | undefined,
+): number {
+  return chargeDensityUnitKind(targetUnit) === "angstrom"
+    ? value / CHARGE_DENSITY_ANGSTROM3_PER_BOHR3
+    : value;
+}
+
+export function chargeDensityValueToAngstromUnit(
+  value: number,
+  sourceUnit: string | null | undefined,
+): number {
+  return chargeDensityUnitKind(sourceUnit) === "bohr"
+    ? value / CHARGE_DENSITY_ANGSTROM3_PER_BOHR3
+    : value;
+}
+
+export function chargeDensityValueFromAngstromUnit(
+  value: number,
+  targetUnit: string | null | undefined,
+): number {
+  return chargeDensityUnitKind(targetUnit) === "bohr"
+    ? value * CHARGE_DENSITY_ANGSTROM3_PER_BOHR3
+    : value;
+}
+
+function chargeDensityUnitKind(
+  unit: string | null | undefined,
+): "angstrom" | "bohr" {
+  const normalizedUnit = unit?.trim().toLowerCase().replace(/\s+/g, "") ?? "";
+  if (
+    normalizedUnit.includes("\u00e5") ||
+    normalizedUnit.includes("angstrom") ||
+    normalizedUnit === "e/a^3" ||
+    normalizedUnit === "e/a**3"
+  ) {
+    return "angstrom";
+  }
+
+  return "bohr";
+}
+
+function wrapFractionalTuple(
+  fractional: [number, number, number],
+): [number, number, number] {
+  return [
+    wrapFractionalCoordinate(fractional[0]),
+    wrapFractionalCoordinate(fractional[1]),
+    wrapFractionalCoordinate(fractional[2]),
+  ];
+}
+
+function wrapFractionalCoordinate(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  const wrapped = value - Math.floor(value);
+  return wrapped >= 1 - 1e-10 ? 0 : wrapped;
+}
+
+export function normalizeChargeDensitySectionAxis(value: unknown): ChargeDensitySectionAxis {
+  return value === "a" || value === "b" || value === "c" ? value : "c";
+}
+
+export function normalizeChargeDensitySectionOpacity(value: unknown): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_CHARGE_DENSITY_SECTION_OPACITY;
+  }
+
+  return Math.min(
+    CHARGE_DENSITY_SECTION_OPACITY_MAX,
+    Math.max(CHARGE_DENSITY_SECTION_OPACITY_MIN, Math.round(numericValue)),
+  );
+}
+
+export function normalizeChargeDensitySectionPosition(value: unknown): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return 50;
+  }
+
+  return Math.min(
+    CHARGE_DENSITY_SECTION_POSITION_MAX,
+    Math.max(CHARGE_DENSITY_SECTION_POSITION_MIN, Math.round(numericValue)),
+  );
+}
+
+export function normalizeChargeDensityBoundaryFillOpacity(value: unknown): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_CHARGE_DENSITY_BOUNDARY_FILL_OPACITY;
+  }
+
+  return Math.min(
+    CHARGE_DENSITY_BOUNDARY_FILL_OPACITY_MAX,
+    Math.max(CHARGE_DENSITY_BOUNDARY_FILL_OPACITY_MIN, Math.round(numericValue)),
+  );
+}
+
+export function normalizeChargeDensitySurfaceMode(value: unknown): ChargeDensitySurfaceMode {
+  return value === "positive" || value === "negative" || value === "both"
+    ? value
+    : "both";
+}
+
+export function normalizeChargeDensityColor(value: unknown, fallback: string): string {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const trimmedValue = value.trim();
+  const shortMatch = /^#?([0-9a-fA-F]{3})$/.exec(trimmedValue);
+  const shortHex = shortMatch?.[1];
+  if (shortHex) {
+    return `#${shortHex
+      .split("")
+      .map((component) => `${component}${component}`)
+      .join("")
+      .toLowerCase()}`;
+  }
+
+  const longMatch = /^#?([0-9a-fA-F]{6})$/.exec(trimmedValue);
+  const longHex = longMatch?.[1];
+  if (longHex) {
+    return `#${longHex.toLowerCase()}`;
+  }
+
+  return fallback;
+}
+
+export function normalizeComponentOpacityState(
+  opacity: Partial<ComponentOpacityState> | null | undefined,
+): ComponentOpacityState {
+  return {
+    ...createDefaultComponentOpacity(),
+    ...opacity,
+  };
+}
+
 export function componentOpacityEquals(
   firstOpacity: ComponentOpacityState,
   secondOpacity: ComponentOpacityState,
@@ -172,7 +491,8 @@ export function componentOpacityEquals(
     firstOpacity.atoms === secondOpacity.atoms &&
     firstOpacity.unitCell === secondOpacity.unitCell &&
     firstOpacity.bonds === secondOpacity.bonds &&
-    firstOpacity.polyhedra === secondOpacity.polyhedra
+    firstOpacity.polyhedra === secondOpacity.polyhedra &&
+    firstOpacity.chargeDensity === secondOpacity.chargeDensity
   );
 }
 
@@ -190,6 +510,53 @@ export function hasPeriodicImageAtoms(scene: SceneSpec | null): boolean {
 
 export function hasPolyhedra(scene: SceneSpec | null): boolean {
   return (scene?.polyhedra.length ?? 0) > 0;
+}
+
+export function hasChargeDensity(scene: SceneSpec | null): boolean {
+  return scene?.chargeDensity !== undefined;
+}
+
+export function maxAbsChargeDensityValue(scene: SceneSpec | null): number {
+  const chargeDensity = scene?.chargeDensity;
+  if (!chargeDensity) {
+    return 0;
+  }
+
+  return Math.max(
+    Math.abs(chargeDensity.min),
+    Math.abs(chargeDensity.max),
+  );
+}
+
+function defaultChargeDensityIsoValue(scene: SceneSpec | null): number {
+  const chargeDensity = scene?.chargeDensity;
+  if (!chargeDensity) {
+    return 0;
+  }
+
+  const maxAbsValue = maxAbsChargeDensityValue(scene);
+  if (maxAbsValue <= 0) {
+    return 0;
+  }
+
+  return normalizeChargeDensityIsoValue(Math.abs(chargeDensity.isoValue), scene);
+}
+
+function chargeDensityIsoValueFromLevel(
+  value: unknown,
+  scene: SceneSpec | null,
+): number | undefined {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return undefined;
+  }
+
+  const maxAbsValue = maxAbsChargeDensityValue(scene);
+  if (maxAbsValue <= 0) {
+    return undefined;
+  }
+
+  return maxAbsValue * Math.min(100, Math.max(0, numericValue)) / 100;
 }
 
 export function visibleSceneForComponents(
@@ -220,6 +587,7 @@ export function visibleSceneForComponents(
     atoms,
     bonds,
     polyhedra,
+    chargeDensity: visibility.chargeDensity ? scene.chargeDensity : undefined,
   }, visibility.supercell);
 }
 
@@ -228,7 +596,7 @@ export function supercellSceneForDisplay(
   settings: SupercellSettings,
 ): SceneSpec {
   const supercell = normalizeSupercellSettings(settings);
-  if (supercell.mode === "repeat") {
+  if (supercell.mode === "repeat" || scene.chargeDensity) {
     return repeatSupercellSceneForDisplay(scene, supercell);
   }
 
@@ -402,6 +770,12 @@ function repeatSupercellSceneForDisplay(
       ...scene.cell,
       vectors: scaledVectors,
     },
+    chargeDensity: scene.chargeDensity
+      ? {
+          ...scene.chargeDensity,
+          supercellRepeat: [aRepeat, bRepeat, cRepeat],
+        }
+      : scene.chargeDensity,
     polyhedra,
   };
 }

@@ -20,6 +20,11 @@ import {
   INSPECTOR_OPEN_SCENE_OFFSET_X_PX,
   INSPECTOR_PREVIEW_SAFE_AREA,
   STRUCTURE_ATOM_COUNT_THRESHOLD,
+  CHARGE_DENSITY_ANGSTROM3_PER_BOHR3,
+  chargeDensityValueFromAngstromUnit,
+  chargeDensityValueFromVestaUnit,
+  chargeDensityValueToAngstromUnit,
+  chargeDensityValueToVestaUnit,
   parseExportDimensionInput,
   setExportAspectRatioLocked,
   setExportBackground,
@@ -30,9 +35,12 @@ import {
   setExportMeshQuality,
   setExportSupersampling,
   countPeriodicImageAtoms,
+  hasChargeDensity,
   hasPolyhedra,
   hasPeriodicImageAtoms,
+  normalizeChargeDensityDisplayState,
   previewSafeAreaForInspector,
+  translateChargeDensityFractionalOffset,
   sceneOffsetXForInspector,
   syncExportSettingsProjectedSize,
   validateExportSettings,
@@ -60,7 +68,7 @@ describe("settings", () => {
       bondColor: "#d2d2d2",
       bondColorMode: "bicolor",
       bondThickness: 100,
-      colorScheme: "vesta-soft",
+      colorScheme: "vesta",
       colorSchemeMode: "preset",
       customColormap: null,
       distinguishSimilarColors: true,
@@ -68,7 +76,7 @@ describe("settings", () => {
       fogAmount: 40,
       fogEnabled: true,
       fogStart: 40,
-      materialPreset: "modern-matte",
+      materialPreset: "metallic",
     });
     expect(STYLE_FOG_START_MIN).toBe(0);
     expect(STYLE_FOG_START_MAX).toBe(100);
@@ -122,7 +130,7 @@ describe("settings", () => {
       combineComponents: true,
       components: {
         legend: false,
-        crystalAxes: false,
+        crystalAxes: true,
         structure: true,
       },
       format: "png",
@@ -237,7 +245,7 @@ describe("settings", () => {
     expect(setExportMeshQuality(defaultSettings, "xhigh").meshQuality).toBe("xhigh");
     expect(setExportComponentSelected(defaultSettings, "legend", true).components).toEqual({
       legend: true,
-      crystalAxes: false,
+      crystalAxes: true,
       structure: true,
     });
     expect(setExportLegendLayout(defaultSettings, "vertical").legendLayout).toBe("vertical");
@@ -322,6 +330,114 @@ describe("settings", () => {
     expect(createDefaultComponentVisibility(scene).atomLabels.kind).toBe("element");
     expect(createDefaultComponentVisibility({ ...scene, polyhedra: [] }).polyhedra).toBe(false);
     expect(createDefaultComponentVisibility().polyhedra).toBe(false);
+  });
+
+  test("detects and filters charge density overlays independently", () => {
+    const scene = {
+      ...sceneWithPeriodicImages(),
+      chargeDensity: {
+        grid: [4, 4, 4],
+        isoValue: 0.5,
+        max: 2,
+        min: -1,
+        mode: "total",
+        positions: [[0.25, 0.25, 0.25]],
+        sampleCount: 1,
+        source: "CHGCAR",
+        totalCandidateCount: 1,
+        values: [2],
+        voxelSize: 0.1,
+      },
+    } satisfies SceneSpec;
+    const defaultVisibility = createDefaultComponentVisibility(scene);
+
+    expect(hasChargeDensity(scene)).toBe(true);
+    expect(hasChargeDensity({ ...scene, chargeDensity: undefined })).toBe(false);
+    expect(hasChargeDensity(null)).toBe(false);
+    expect(defaultVisibility.chargeDensity).toBe(true);
+    expect(visibleSceneForComponents(scene, defaultVisibility)?.chargeDensity).toBe(
+      scene.chargeDensity,
+    );
+    expect(
+      visibleSceneForComponents(scene, {
+        ...defaultVisibility,
+        chargeDensity: false,
+      })?.chargeDensity,
+    ).toBeUndefined();
+    expect(
+      normalizeChargeDensityDisplayState(
+        {
+          boundaryColor: "#abc",
+          boundaryFillOpacity: 36,
+          fractionalOffset: [1.2, -0.1, 0.25],
+          interpolationFactor: 1.5,
+          isoValue: 1,
+          sectionAxis: "a",
+          sectionEnabled: true,
+          sectionOpacity: 42,
+          sectionPosition: 25,
+          surfaceMode: "positive",
+        },
+        scene,
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        boundaryColor: "#aabbcc",
+        boundaryFillOpacity: 36,
+        fractionalOffset: [0.19999999999999996, 0.9, 0.25],
+        interpolationFactor: 1.5,
+        sectionAxis: "a",
+        sectionEnabled: true,
+        sectionOpacity: 42,
+        sectionPosition: 25,
+        surfaceMode: "positive",
+      }),
+    );
+    expect(
+      normalizeChargeDensityDisplayState(
+        {
+          boundaryColor: "not-a-color",
+          boundaryFillOpacity: 142,
+          fractionalOffset: ["bad", 1, Number.POSITIVE_INFINITY] as never,
+          interpolationFactor: 1.25,
+          sectionAxis: "bad" as never,
+          sectionOpacity: 142,
+          sectionPosition: -25,
+          surfaceMode: "hidden" as never,
+        },
+        scene,
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        boundaryColor: "#6f737a",
+        boundaryFillOpacity: 100,
+        fractionalOffset: [0, 0, 0],
+        interpolationFactor: 1,
+        sectionAxis: "c",
+        sectionEnabled: false,
+        sectionOpacity: 100,
+        sectionPosition: 0,
+        surfaceMode: "both",
+      }),
+    );
+    expect(
+      translateChargeDensityFractionalOffset(
+        normalizeChargeDensityDisplayState({ fractionalOffset: [0.95, 0.1, 0] }),
+        [0.1, -0.2, 1],
+      ).fractionalOffset,
+    ).toEqual([0.050000000000000044, 0.9, 0]);
+  });
+
+  test("converts charge density iso values between Angstrom and VESTA units", () => {
+    expect(chargeDensityValueToVestaUnit(1, "e/A^3")).toBeCloseTo(
+      CHARGE_DENSITY_ANGSTROM3_PER_BOHR3,
+    );
+    expect(chargeDensityValueFromVestaUnit(CHARGE_DENSITY_ANGSTROM3_PER_BOHR3, "e/A^3")).toBeCloseTo(1);
+    expect(chargeDensityValueToAngstromUnit(CHARGE_DENSITY_ANGSTROM3_PER_BOHR3, "e/a0^3")).toBeCloseTo(1);
+    expect(chargeDensityValueFromAngstromUnit(1, "e/a0^3")).toBeCloseTo(
+      CHARGE_DENSITY_ANGSTROM3_PER_BOHR3,
+    );
+    expect(chargeDensityValueToVestaUnit(0.0023, "e/bohr^3")).toBeCloseTo(0.0023);
   });
 
   test("filters image atoms, bonds, and polyhedra locally without mutating the loaded scene", () => {
@@ -462,7 +578,10 @@ describe("settings", () => {
   });
 
   test("expands the visible scene for supercell display", () => {
-    const scene = sceneWithPeriodicImages();
+    const scene = {
+      ...sceneWithPeriodicImages(),
+      chargeDensity: testChargeDensity(),
+    } satisfies SceneSpec;
     const visibleScene = visibleSceneForComponents(scene, {
       ...createDefaultComponentVisibility(scene),
       boundaryAtoms: false,
@@ -485,6 +604,8 @@ describe("settings", () => {
     expect(visibleScene?.atoms[2]?.fractionalPosition).toEqual([0.5, 0, 0]);
     expect(visibleScene?.atoms[0]?.position).toEqual([0, 0, 0]);
     expect(visibleScene?.atoms[2]?.position).toEqual([1, 0, 0]);
+    expect(visibleScene?.chargeDensity?.supercellRepeat).toEqual([2, 1, 1]);
+    expect(visibleScene?.chargeDensity?.scalarValues).toBe(scene.chargeDensity.scalarValues);
     expect(bondAtomIds(visibleScene)).toEqual([
       "Na-0--Cl-1",
       "Na-0-supercell-1-0-0--Cl-1-supercell-1-0-0",
@@ -523,6 +644,30 @@ describe("settings", () => {
       "Na-0--Cl-1",
       "Na-0-supercell-1-1-0--Cl-1-supercell-1-1-0",
     ]);
+  });
+
+  test("disables matrix supercell display while charge density is visible", () => {
+    const scene = {
+      ...sceneForMatrixSupercell(),
+      chargeDensity: testChargeDensity(),
+    } satisfies SceneSpec;
+    const visibleScene = visibleSceneForComponents(scene, {
+      ...createDefaultComponentVisibility(scene),
+      supercell: {
+        ...createDefaultComponentVisibility(scene).supercell,
+        matrix: [
+          [1, 0, 0],
+          [1, 2, 0],
+          [0, 0, 1],
+        ],
+        mode: "matrix",
+      },
+    });
+
+    expect(visibleScene?.cell.vectors).toEqual(scene.cell.vectors);
+    expect(visibleScene?.atoms.map((atom) => atom.id)).toEqual(["Na-0", "Cl-1"]);
+    expect(visibleScene?.chargeDensity).toBe(scene.chargeDensity);
+    expect(visibleScene?.chargeDensity?.supercellRepeat).toBeUndefined();
   });
 
   test("applies unimodular transformation matrix changes without duplicating atoms", () => {
@@ -759,6 +904,23 @@ function polyhedron(hullAtomIndices: number[]): SceneSpec["polyhedra"][number] {
     faces: hullAtomIndices.length >= 3 ? [[0, 1, 2]] : [],
     visibilityDependencies: [],
     visibilityDependencyGroups: [],
+  };
+}
+
+function testChargeDensity(): NonNullable<SceneSpec["chargeDensity"]> {
+  return {
+    grid: [2, 2, 2],
+    isoValue: 0.1,
+    max: 0.2,
+    min: -0.2,
+    mode: "total",
+    positions: [[0, 0, 0]],
+    sampleCount: 1,
+    scalarValues: [0, 0.1, 0.2, 0.1, -0.1, -0.2, -0.1, 0],
+    source: "CHGCAR",
+    totalCandidateCount: 1,
+    values: [0.2],
+    voxelSize: 0.1,
   };
 }
 

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "defaultColorSchemeId": "vesta-soft",
+  "defaultColorSchemeId": "vesta",
   "colormaps": [
     {
       "id": "vesta-soft",

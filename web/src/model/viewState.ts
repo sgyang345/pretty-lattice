@@ -1,6 +1,7 @@
 import type { CrystalCameraState } from "./crystalCameraState";
 
 export type InteractionMode = "trackball" | "orbit";
+export type ProjectionMode = "parallel" | "perspective";
 
 export const MIN_VIEW_SCALE = 0.2;
 export const MAX_VIEW_SCALE = 5;
@@ -33,15 +34,28 @@ export const INTERACTION_MODE_OPTIONS: readonly {
   { label: "Orbit", value: "orbit" },
 ];
 
+export const PROJECTION_MODE_OPTIONS: readonly {
+  label: string;
+  value: ProjectionMode;
+}[] = [
+  { label: "Parallel", value: "parallel" },
+  { label: "Perspective", value: "perspective" },
+];
+
 export interface PreviewViewState {
   camera: CrystalCameraState;
   dragSensitivity: number;
   interactionLocked: boolean;
   interactionMode: InteractionMode;
   lightStrength: number;
+  projectionMode: ProjectionMode;
   resetCounter: number;
   showFpsOverlay: boolean;
   viewScale: number;
+}
+
+export function normalizeProjectionMode(value: unknown): ProjectionMode {
+  return value === "perspective" ? "perspective" : "parallel";
 }
 
 export function clampViewScale(viewScale: number): number {

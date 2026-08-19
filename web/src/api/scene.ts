@@ -8,6 +8,7 @@ export interface SceneSpec {
   atoms: AtomSpec[];
   bonds: BondSpec[];
   polyhedra: PolyhedronSpec[];
+  chargeDensity?: ChargeDensitySpec;
   brillouinZone?: BrillouinZoneSpec;
   summary: StructureSummary;
   warnings?: AnalysisWarningSpec[];
@@ -87,6 +88,26 @@ export interface PolyhedronSpec {
   faces: [number, number, number][];
   visibilityDependencies: VisibilityDependency[];
   visibilityDependencyGroups: VisibilityDependency[][];
+}
+
+export interface ChargeDensitySpec {
+  source: string;
+  grid: [number, number, number];
+  dataGrid?: [number, number, number];
+  dataOrigin?: [number, number, number];
+  dataStride?: [number, number, number];
+  mode: string;
+  unit?: string;
+  isoValue: number;
+  min: number;
+  max: number;
+  sampleCount: number;
+  scalarValues?: number[];
+  supercellRepeat?: [number, number, number];
+  totalCandidateCount: number;
+  positions: [number, number, number][];
+  values: number[];
+  voxelSize: number;
 }
 
 export interface BrillouinZoneSpec {

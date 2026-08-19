@@ -73,7 +73,7 @@ export const DEFAULT_EXPORT_SETTINGS: ExportSettingsState = {
   combineComponents: true,
   components: {
     legend: false,
-    crystalAxes: false,
+    crystalAxes: true,
     structure: true,
   },
   format: "png",

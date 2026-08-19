@@ -28,7 +28,7 @@ import {
 import type { PrettyLatticeProjectFile } from "../../model";
 import type { PreviewStatus } from "../previewState";
 
-const MAX_STRUCTURE_UPLOAD_BYTES = 1 * 1024 * 1024;
+const MAX_STRUCTURE_UPLOAD_BYTES = 100 * 1024 * 1024;
 const STRUCTURE_FILE_TOO_LARGE_MESSAGE = "File is too large to preview.";
 const STRUCTURE_PARSE_ERROR_MESSAGE = "pymatgen could not parse this file.";
 
@@ -343,10 +343,10 @@ export function useStructurePreview({
   ]);
 
   const rebuildCurrentStructurePreview = useCallback(
-    async (file: File): Promise<boolean> => {
+    async (file: File): Promise<SceneSpec | null> => {
       if (isStaticScenePreview) {
         setErrorMessage(BACKEND_UNAVAILABLE_MESSAGE);
-        return false;
+        return null;
       }
 
       setPreviewStatus("loading");
@@ -355,11 +355,14 @@ export function useStructurePreview({
       rebuildRequestIdRef.current = requestId;
 
       try {
-        const nextScene = await uploadStructurePreview(file, { bondAlgorithm });
+        const rebuiltScene = await uploadStructurePreview(file, { bondAlgorithm });
         if (requestId !== rebuildRequestIdRef.current) {
-          return false;
+          return null;
         }
-
+        const nextScene =
+          scene?.chargeDensity && !rebuiltScene.chargeDensity
+            ? { ...rebuiltScene, chargeDensity: scene.chargeDensity }
+            : rebuiltScene;
         setCurrentFile(file);
         setPreviewSource((currentPreviewSource) =>
           currentPreviewSource === "startup" || currentPreviewSource === "startup-project"
@@ -368,10 +371,10 @@ export function useStructurePreview({
         );
         setScene(nextScene);
         setPreviewStatus("ready");
-        return true;
+        return nextScene;
       } catch (error) {
         if (requestId !== rebuildRequestIdRef.current) {
-          return false;
+          return null;
         }
 
         setPreviewStatus(scene ? "ready" : "error");
@@ -380,7 +383,7 @@ export function useStructurePreview({
             ? error.message
             : STRUCTURE_PARSE_ERROR_MESSAGE,
         );
-        return false;
+        return null;
       }
     },
     [bondAlgorithm, isStaticScenePreview, scene],

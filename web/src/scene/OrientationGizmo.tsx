@@ -51,8 +51,10 @@ const LABEL_OUTLINE_RADIUS = 44;
 const ORIGIN_SPHERE_RADIUS = 0.13;
 const SHAFT_LENGTH = 0.82;
 const SHAFT_RADIUS = 0.055;
+const AXIS_DOUBLE_CLICK_INTERVAL_MS = 360;
 export const ORIENTATION_GIZMO_ZOOM_PER_CANVAS_PIXEL = BASE_CAMERA_ZOOM / BASE_INNER_CANVAS_SIZE;
 const Y_AXIS = new Vector3(0, 1, 0);
+export type OrientationGizmoAxisDirection = 1 | -1;
 
 export function OrientationGizmo({
   axisLabels,
@@ -70,13 +72,20 @@ export function OrientationGizmo({
   cellVectors: VectorTuple[];
   className?: string;
   frameRequestRef?: MutableRefObject<(() => void) | null>;
-  onAxisClick?: (axis: OrientationGizmoAxisLabel) => void;
+  onAxisClick?: (
+    axis: OrientationGizmoAxisLabel,
+    direction: OrientationGizmoAxisDirection,
+  ) => void;
   orientationVersion?: number;
   showLabels?: boolean;
   style?: CSSProperties;
 }) {
   const visualCanvasRef = useRef<HTMLDivElement | null>(null);
   const hoveredAxisRef = useRef<OrientationGizmoAxisLabel | null>(null);
+  const lastAxisClickRef = useRef<{
+    axis: OrientationGizmoAxisLabel;
+    timeStamp: number;
+  } | null>(null);
   const lastPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const suppressNextClickRef = useRef(false);
   const clickSuppressionTimeoutRef = useRef<number | null>(null);
@@ -167,7 +176,16 @@ export function OrientationGizmo({
       }, 750);
       event.preventDefault();
       event.stopImmediatePropagation();
-      onAxisClick?.(axis);
+      const lastAxisClick = lastAxisClickRef.current;
+      const isDoubleClick = lastAxisClick?.axis === axis &&
+        event.timeStamp - lastAxisClick.timeStamp <= AXIS_DOUBLE_CLICK_INTERVAL_MS;
+      lastAxisClickRef.current = isDoubleClick
+        ? null
+        : {
+            axis,
+            timeStamp: event.timeStamp,
+          };
+      onAxisClick?.(axis, isDoubleClick ? -1 : 1);
     }
 
     function handleClick(event: MouseEvent) {

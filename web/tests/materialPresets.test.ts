@@ -10,7 +10,7 @@ import {
 
 describe("material presets", () => {
   test("loads bundled material presets from JSON data", () => {
-    expect(DEFAULT_MATERIAL_PRESET_ID).toBe("modern-matte");
+    expect(DEFAULT_MATERIAL_PRESET_ID).toBe("metallic");
     expect(MATERIAL_PRESETS.map((preset) => preset.id)).toEqual([
       "modern-matte",
       "classic-matte",

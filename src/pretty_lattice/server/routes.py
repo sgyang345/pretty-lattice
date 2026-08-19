@@ -8,8 +8,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from pretty_lattice.structures.readers import (
     StructureReadError,
-    read_structure,
-    read_structure_bytes,
+    read_structure_preview,
+    read_structure_preview_bytes,
 )
 from pretty_lattice.structures.scene_builder import build_scene_response
 from pretty_lattice.structures.schema import (
@@ -18,7 +18,7 @@ from pretty_lattice.structures.schema import (
 )
 
 router = APIRouter()
-MAX_STRUCTURE_UPLOAD_BYTES = 1 * 1024 * 1024
+MAX_STRUCTURE_UPLOAD_BYTES = 100 * 1024 * 1024
 MAX_PROJECT_FILE_BYTES = 50 * 1024 * 1024
 MAX_GENERATED_FILE_BYTES = 50 * 1024 * 1024
 STRUCTURE_FILE_TOO_LARGE_MESSAGE = "File is too large to preview."
@@ -60,8 +60,12 @@ async def create_structure_preview(
 
     try:
         payload = await _uploaded_payload(request)
-        structure = read_structure_bytes(payload, filename=filename)
-        return build_scene_response(structure, bond_algorithm=normalized_bond_algorithm)
+        preview = read_structure_preview_bytes(payload, filename=filename)
+        return build_scene_response(
+            preview.structure,
+            bond_algorithm=normalized_bond_algorithm,
+            charge_density=preview.charge_density,
+        )
     except StructureReadError as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
 
@@ -86,10 +90,14 @@ def get_startup_structure_preview(
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc
 
     try:
-        structure = read_structure(structure_path)
+        preview = read_structure_preview(structure_path)
         return {
             "fileName": structure_path.name,
-            "scene": build_scene_response(structure, bond_algorithm=normalized_bond_algorithm),
+            "scene": build_scene_response(
+                preview.structure,
+                bond_algorithm=normalized_bond_algorithm,
+                charge_density=preview.charge_density,
+            ),
         }
     except StructureReadError as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc)}) from exc

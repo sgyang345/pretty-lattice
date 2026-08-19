@@ -1,9 +1,10 @@
-import { OrthographicCamera, Quaternion, Vector3 } from "three";
+import { OrthographicCamera, PerspectiveCamera, Quaternion, Vector3 } from "three";
 
+import type { ProjectionMode } from "../model/viewState";
 import type { VectorTuple } from "./viewMath";
 
 export interface CameraPoseSnapshot {
-  projection: "orthographic";
+  projection: ProjectionMode;
   quaternion: [number, number, number, number];
   target: VectorTuple;
 }
@@ -14,9 +15,10 @@ const CAMERA_UP = new Vector3(0, 1, 0);
 export function createCameraPoseSnapshot(
   orientation: Quaternion,
   target: VectorTuple = [0, 0, 0],
+  projection: ProjectionMode = "parallel",
 ): CameraPoseSnapshot {
   return {
-    projection: "orthographic",
+    projection,
     quaternion: [orientation.x, orientation.y, orientation.z, orientation.w],
     target,
   };
@@ -45,6 +47,12 @@ export function applyCameraPoseSnapshot(
   camera.quaternion.copy(quaternion);
 
   if (camera instanceof OrthographicCamera) {
+    camera.near = 0.01;
+    camera.far = Math.max(1000, cameraDistance + span * 8);
+    camera.updateProjectionMatrix();
+  }
+
+  if (camera instanceof PerspectiveCamera) {
     camera.near = 0.01;
     camera.far = Math.max(1000, cameraDistance + span * 8);
     camera.updateProjectionMatrix();

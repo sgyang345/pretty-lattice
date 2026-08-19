@@ -18,9 +18,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import type { AtomRadiusModel, AtomSpec } from "../../../api/scene";
+import type { AtomRadiusModel, AtomSpec, ChargeDensitySpec } from "../../../api/scene";
 import type {
   AtomVectorSettings,
+  ChargeDensityDisplayState,
   ComponentOpacityState,
   ComponentVisibilityState,
   CrystalCameraPrimaryDirection,
@@ -28,6 +29,7 @@ import type {
   CrystalCameraState,
   ExportProjectedSize,
   ExportSettingsState,
+  ProjectionMode,
   StyleState,
   VectorTuple,
 } from "../../../model";
@@ -39,6 +41,7 @@ import { OrientationTabContent } from "./OrientationTab";
 import { StyleTabContent } from "./StyleTab";
 
 export type CommonPanelTab = "camera" | "display" | "style" | "export";
+type CopyImageFormat = "jpg" | "png";
 
 interface TabIndicatorRect {
   left: number;
@@ -64,12 +67,16 @@ export function CommonControlsPanel({
   atomVectors,
   cameraState,
   cellVectors,
+  chargeDensityDisplay,
+  chargeDensity,
   componentOpacity,
   componentVisibility,
   exportError,
   exportProjectedSize,
   exportSettings,
+  hasChargeDensity,
   hasPolyhedra,
+  copyingImageFormat,
   isExporting,
   sceneAtoms,
   selectedAtomSiteIds,
@@ -81,28 +88,37 @@ export function CommonControlsPanel({
   onComponentVisibilityChange,
   onAtomRadiusModelChange,
   onAtomVectorsChange,
+  onChargeDensityDisplayChange,
   onCameraPrimaryChange,
   onCameraRollPreviewChange,
   onCameraRollPreviewStart,
   onCameraRollChange,
   onCameraSecondaryChange,
   onCameraStateChange,
+  onProjectionModeChange,
   onActiveTabChange,
+  onCopyImage,
   onExport,
   onExportSettingsChange,
   onStyleChange,
   style,
+  projectionMode,
 }: {
   activeTab: CommonPanelTab;
   atomVectors: AtomVectorSettings;
   cameraState: CrystalCameraState;
   cellVectors: VectorTuple[];
+  chargeDensityDisplay: ChargeDensityDisplayState;
+  chargeDensity: ChargeDensitySpec | undefined;
   componentOpacity: ComponentOpacityState;
   componentVisibility: ComponentVisibilityState;
   exportError: string | null;
   exportProjectedSize?: ExportProjectedSize;
   exportSettings: ExportSettingsState;
+  projectionMode: ProjectionMode;
+  hasChargeDensity: boolean;
   hasPolyhedra: boolean;
+  copyingImageFormat: CopyImageFormat | null;
   isExporting: boolean;
   sceneAtoms: AtomSpec[];
   selectedAtomSiteIds: string[];
@@ -118,15 +134,18 @@ export function CommonControlsPanel({
   ) => void;
   onAtomRadiusModelChange: (atomRadiusModel: AtomRadiusModel) => void;
   onAtomVectorsChange: Dispatch<SetStateAction<AtomVectorSettings>>;
+  onChargeDensityDisplayChange: Dispatch<SetStateAction<ChargeDensityDisplayState>>;
   onCameraPrimaryChange: (primary: CrystalCameraPrimaryDirection) => void;
   onCameraRollPreviewChange: (rollDegrees: number) => void;
   onCameraRollPreviewStart: () => void;
   onCameraRollChange: (rollDegrees: number) => void;
   onCameraSecondaryChange: (secondary: CrystalCameraScreenDirection) => void;
   onCameraStateChange: (cameraState: CrystalCameraState) => void;
+  onProjectionModeChange: (projectionMode: ProjectionMode) => void;
   onActiveTabChange?: (tab: CommonPanelTab) => void;
   onComponentOpacityChange: Dispatch<SetStateAction<ComponentOpacityState>>;
   onComponentVisibilityChange: Dispatch<SetStateAction<ComponentVisibilityState>>;
+  onCopyImage: (format: CopyImageFormat) => void;
   onExport: () => void;
   onExportSettingsChange: (settings: ExportSettingsState) => void;
   onStyleChange: Dispatch<SetStateAction<StyleState>>;
@@ -368,6 +387,7 @@ export function CommonControlsPanel({
               <OrientationTabContent
                 cameraState={cameraState}
                 cellVectors={cellVectors}
+                projectionMode={projectionMode}
                 sceneAtoms={sceneAtoms}
                 selectedAtomSiteIds={selectedAtomSiteIds}
                 onAtomPositionSelectionChange={onAtomPositionSelectionChange}
@@ -380,16 +400,21 @@ export function CommonControlsPanel({
                 onCameraRollChange={onCameraRollChange}
                 onCameraSecondaryChange={onCameraSecondaryChange}
                 onCameraStateChange={onCameraStateChange}
+                onProjectionModeChange={onProjectionModeChange}
               />
             </TabsContent>
             <TabsContent value="display">
               <DisplayTabContent
+                hasChargeDensity={hasChargeDensity}
                 hasPolyhedra={hasPolyhedra}
                 sceneAtoms={sceneAtoms}
                 atomVectors={atomVectors}
+                chargeDensityDisplay={chargeDensityDisplay}
+                chargeDensity={chargeDensity}
                 opacity={componentOpacity}
                 onOpacityChange={onComponentOpacityChange}
                 onAtomVectorsChange={onAtomVectorsChange}
+                onChargeDensityDisplayChange={onChargeDensityDisplayChange}
                 visibility={componentVisibility}
                 onVisibilityChange={onComponentVisibilityChange}
               />
@@ -405,7 +430,9 @@ export function CommonControlsPanel({
               <ExportTabContent
                 error={exportError}
                 exportProjectedSize={exportProjectedSize}
+                copyingImageFormat={copyingImageFormat}
                 isExporting={isExporting}
+                onCopyImage={onCopyImage}
                 onExport={onExport}
                 onSettingsChange={onExportSettingsChange}
                 settings={exportSettings}

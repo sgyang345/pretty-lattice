@@ -10,6 +10,7 @@ import type {
 } from "../model";
 import type {
   InteractionMode,
+  ProjectionMode,
   PreviewViewState,
 } from "../model/viewState";
 export {
@@ -25,6 +26,7 @@ export {
   MAX_DRAG_SENSITIVITY,
   MAX_LIGHT_STRENGTH,
   INTERACTION_MODE_OPTIONS,
+  PROJECTION_MODE_OPTIONS,
   MAX_VIEW_SCALE,
   MIN_DRAG_SENSITIVITY,
   MIN_LIGHT_STRENGTH,
@@ -50,6 +52,7 @@ export {
   snapZoomSliderPosition,
   viewScaleToSliderPosition,
   type InteractionMode,
+  type ProjectionMode,
   type PreviewViewState,
 } from "../model/viewState";
 import {
@@ -58,6 +61,7 @@ import {
   clampLightStrength,
   DEFAULT_LIGHT_STRENGTH,
   DEFAULT_VIEW_SCALE,
+  normalizeProjectionMode,
 } from "../model/viewState";
 
 export function createPreviewViewState(cellVectors: VectorTuple[] = []): PreviewViewState {
@@ -67,6 +71,7 @@ export function createPreviewViewState(cellVectors: VectorTuple[] = []): Preview
     interactionLocked: false,
     interactionMode: "trackball",
     lightStrength: DEFAULT_LIGHT_STRENGTH,
+    projectionMode: "parallel",
     resetCounter: 0,
     showFpsOverlay: false,
     viewScale: DEFAULT_VIEW_SCALE,
@@ -130,6 +135,16 @@ export function setPreviewInteractionMode(
   return {
     ...state,
     interactionMode,
+  };
+}
+
+export function setPreviewProjectionMode(
+  state: PreviewViewState,
+  projectionMode: ProjectionMode,
+): PreviewViewState {
+  return {
+    ...state,
+    projectionMode: normalizeProjectionMode(projectionMode),
   };
 }
 

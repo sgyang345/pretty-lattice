@@ -21,6 +21,7 @@ const LABEL_PADDING_Y = 10;
 const LABEL_TEXTURE_SCALE = 0.012;
 const LABEL_SURFACE_OFFSET_RATIO = 1.04;
 const LABEL_SIZE_NORMALIZATION = 100;
+const ATOM_LABEL_RENDER_ORDER = 30;
 
 export function AtomLabels({
   atoms,
@@ -121,7 +122,7 @@ function AtomLabelSprite({
   useFrame(updatePosition);
 
   return (
-    <sprite ref={spriteRef} scale={[width, height, 1]}>
+    <sprite ref={spriteRef} renderOrder={ATOM_LABEL_RENDER_ORDER} scale={[width, height, 1]}>
       <spriteMaterial
         attach="material"
         map={texture}

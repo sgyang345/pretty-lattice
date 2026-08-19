@@ -14,10 +14,12 @@ import { exportFileStem } from "./fileNames";
 export async function createStructureExportFile({
   atomVectors,
   cameraOrientationRef,
+  chargeDensityDisplay,
   componentOpacity,
   componentVisibility,
   fileName,
   lightStrength,
+  projectionMode,
   scene,
   settings,
   style,
@@ -33,10 +35,15 @@ export async function createStructureExportFile({
     throw new Error("No structure is available to export.");
   }
 
-  const cameraPose = createCameraPoseSnapshot(cameraOrientationRef.current);
+  const cameraPose = createCameraPoseSnapshot(
+    cameraOrientationRef.current,
+    [0, 0, 0],
+    projectionMode,
+  );
   const rasterImage = await renderExportRaster({
     atomVectors,
     cameraPose,
+    chargeDensityDisplay,
     componentOpacity,
     componentVisibility,
     lightStrength,

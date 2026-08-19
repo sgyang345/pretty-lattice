@@ -60,6 +60,17 @@ describe("crystal camera math", () => {
     expectVectorClose(cPrimary.up, [0, 1, 0]);
   });
 
+  test("supports opposite direct-axis views", () => {
+    const negativeA = computeCrystalCameraVectors(
+      CUBIC_CELL,
+      stateWithDirectAxis(CUBIC_CELL, createDefaultCrystalCameraState(), "a", -1),
+    );
+
+    expectVectorClose(negativeA.outward, [-1, 0, 0]);
+    expectVectorClose(negativeA.right, [0, -1, 0]);
+    expectVectorClose(negativeA.up, [0, 0, 1]);
+  });
+
   test("uses cyclic direct-axis alignment for non-outward primary screen axes", () => {
     const aRight = computeCrystalCameraVectors(CUBIC_CELL, {
       ...createDefaultCrystalCameraState(),

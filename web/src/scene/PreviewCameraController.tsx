@@ -1,6 +1,6 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { MOUSE, OrthographicCamera, Quaternion, TOUCH, Vector3 } from "three";
+import { MOUSE, OrthographicCamera, PerspectiveCamera, Quaternion, TOUCH, Vector3 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TrackballControls } from "three/examples/jsm/controls/TrackballControls.js";
 
@@ -11,6 +11,7 @@ import {
   MIN_VIEW_SCALE,
   BASE_ORBIT_DRAG_SENSITIVITY,
   BASE_TRACKBALL_DRAG_SENSITIVITY,
+  DEFAULT_VIEW_SCALE,
   clampViewScale,
   type InteractionMode,
 } from "../model/viewState";
@@ -21,6 +22,7 @@ import {
 } from "./crystalCamera";
 import type { SceneLayout } from "./sceneLayout";
 import { previewSafeAreaForViewport } from "./sceneLayout";
+import { cellCorners } from "./sceneGeometry";
 import {
   applyOrthographicFrustum,
   computeCameraFitZoom,
@@ -42,6 +44,7 @@ const CAMERA_CONTROLS_STATE_TOUCH_ROTATE = 3;
 const CAMERA_CONTROLS_STATE_ORBIT_TOUCH_DOLLY_ROTATE = 6;
 const VIEW_SCALE_SYNC_EPSILON = 0.0005;
 const FRUSTUM_SYNC_EPSILON = 0.000001;
+const PERSPECTIVE_CAMERA_FOV_DEGREES = 35;
 
 type CameraControls = OrbitControls | TrackballControls;
 
@@ -97,7 +100,7 @@ export function PreviewCameraController({
     active: false,
     idleFrames: 0,
     lastQuaternion: new Quaternion(),
-    lastZoom: camera instanceof OrthographicCamera ? camera.zoom : 0,
+    lastZoom: DEFAULT_VIEW_SCALE,
     waitingForIdle: false,
   });
   const isCameraAnimationActiveRef = useRef(false);
@@ -143,8 +146,16 @@ export function PreviewCameraController({
   );
 
   const getCameraZoomSnapshot = useCallback(
-    () => (camera instanceof OrthographicCamera ? camera.zoom : 0),
-    [camera],
+    () =>
+      cameraViewScaleSnapshot(
+        camera,
+        fitZoom,
+        size.height,
+        cameraPoseRef.current,
+        cellVectors,
+        layout.groupPosition,
+      ),
+    [camera, cellVectors, fitZoom, layout.groupPosition, size.height],
   );
 
   const publishCameraViewScaleSnapshot = useCallback(
@@ -253,7 +264,16 @@ export function PreviewCameraController({
     hasAppliedInitialPoseRef.current = true;
 
     if (shouldAnimate) {
-      cameraAnimationRef.current = createCameraPoseAnimation(camera, cameraPoseRef.current, layout.span);
+      cameraAnimationRef.current = createCameraPoseAnimation(
+        camera,
+        cameraPoseRef.current,
+        layout.span,
+        syncedViewScaleRef.current,
+        fitZoom,
+        size.height,
+        cellVectors,
+        layout.groupPosition,
+      );
       setCameraAnimationActive(true);
       requestFrame();
       return;
@@ -261,7 +281,16 @@ export function PreviewCameraController({
 
     cameraAnimationRef.current = null;
     setCameraAnimationActive(false, commandChanged && animatedCommandChanged);
-    applyStandardCameraPose(camera, cameraPoseRef.current, layout.span);
+    applyStandardCameraPose(
+      camera,
+      cameraPoseRef.current,
+      layout.span,
+      syncedViewScaleRef.current,
+      fitZoom,
+      size.height,
+      cellVectors,
+      layout.groupPosition,
+    );
     controlsRef.current?.target.copy(CAMERA_TARGET);
     controlsRef.current?.update();
     requestFrame();
@@ -269,54 +298,63 @@ export function PreviewCameraController({
     camera,
     cameraAnimatedCommandVersion,
     cameraCommandVersion,
+    cellVectors,
+    fitZoom,
+    layout.groupPosition,
     layout.span,
     requestFrame,
     resetCounter,
     setCameraAnimationActive,
+    size.height,
   ]);
 
   useLayoutEffect(() => {
     const nextViewScale = cameraInteractionStore.getViewScaleSnapshot();
     syncedViewScaleRef.current = nextViewScale;
 
-    if (!(camera instanceof OrthographicCamera)) {
-      return;
-    }
-
-    syncOrthographicFrustumToZoom(
+    syncCameraProjectionToViewScale(
       camera,
+      cameraPoseRef.current,
+      layout.span,
       size.width,
       size.height,
-      fitZoom * nextViewScale,
+      fitZoom,
+      nextViewScale,
       effectiveSafeArea,
+      cellVectors,
+      layout.groupPosition,
     );
     requestFrame();
   }, [
     camera,
     cameraInteractionStore,
+    cellVectors,
     effectiveSafeArea,
     fitZoom,
+    layout.groupPosition,
+    layout.span,
     requestFrame,
     size.height,
     size.width,
   ]);
 
   useEffect(() => {
-    if (!(camera instanceof OrthographicCamera)) {
-      return;
-    }
-
     return cameraInteractionStore.subscribeViewScaleCommand(() => {
       const { viewScale: commandViewScale } =
         cameraInteractionStore.getViewScaleCommandSnapshot();
       const nextViewScale = clampViewScale(commandViewScale);
       syncedViewScaleRef.current = nextViewScale;
-      syncOrthographicFrustumToZoom(
+      syncCameraProjectionToViewScale(
         camera,
+        cameraPoseRef.current,
+        layout.span,
         size.width,
         size.height,
-        fitZoom * nextViewScale,
+        fitZoom,
+        nextViewScale,
         effectiveSafeArea,
+        cellVectors,
+        layout.groupPosition,
       );
       requestFrame();
     });
@@ -325,6 +363,7 @@ export function PreviewCameraController({
     cameraInteractionStore,
     effectiveSafeArea,
     fitZoom,
+    layout.span,
     requestFrame,
     size.height,
     size.width,
@@ -343,6 +382,23 @@ export function PreviewCameraController({
         camera,
         computeCrystalCameraPose(cellVectors, cameraState, layout.span),
         layout.span,
+        syncedViewScaleRef.current,
+        fitZoom,
+        size.height,
+        cellVectors,
+        layout.groupPosition,
+      );
+      syncCameraProjectionToViewScale(
+        camera,
+        cameraPoseRef.current,
+        layout.span,
+        size.width,
+        size.height,
+        fitZoom,
+        syncedViewScaleRef.current,
+        effectiveSafeArea,
+        cellVectors,
+        layout.groupPosition,
       );
       controlsRef.current?.target.copy(CAMERA_TARGET);
       controlsRef.current?.update();
@@ -352,9 +408,14 @@ export function PreviewCameraController({
     camera,
     cameraInteractionStore,
     cellVectors,
+    effectiveSafeArea,
+    fitZoom,
+    layout.groupPosition,
     layout.span,
     requestFrame,
     setCameraAnimationActive,
+    size.height,
+    size.width,
   ]);
 
   useEffect(() => {
@@ -401,6 +462,10 @@ export function PreviewCameraController({
       interactionMode,
       interactionLocked,
       fitZoom,
+      size.height,
+      cameraPose,
+      cellVectors,
+      layout.groupPosition,
       dragSensitivity,
     );
     controls.target.copy(CAMERA_TARGET);
@@ -438,6 +503,11 @@ export function PreviewCameraController({
     gl.domElement,
     dragSensitivity,
     interactionMode,
+    fitZoom,
+    cameraPose,
+    cellVectors,
+    layout.groupPosition,
+    size.height,
     requestFrame,
     requestCameraControlsInteractionFinish,
     resetCounter,
@@ -460,6 +530,10 @@ export function PreviewCameraController({
       interactionMode,
       interactionLocked,
       fitZoom,
+      size.height,
+      cameraPose,
+      cellVectors,
+      layout.groupPosition,
       dragSensitivity,
     );
     controls.target.copy(CAMERA_TARGET);
@@ -468,6 +542,10 @@ export function PreviewCameraController({
   }, [
     dragSensitivity,
     fitZoom,
+    cameraPose,
+    cellVectors,
+    layout.groupPosition,
+    size.height,
     interactionLocked,
     interactionMode,
     requestFrame,
@@ -481,18 +559,21 @@ export function PreviewCameraController({
 
   useEffect(() => {
     const controls = controlsRef.current;
-    if (!controls || !(camera instanceof OrthographicCamera)) {
+    if (!controls) {
       return;
     }
-    const orthographicCamera = camera;
 
     function handleControlsChange() {
-      const nextViewScale = syncOrthographicFrustumToCameraZoom(
-        orthographicCamera,
+      const nextViewScale = syncCameraProjectionToCamera(
+        camera,
+        cameraPoseRef.current,
+        layout.span,
         fitZoom,
         size.width,
         size.height,
         effectiveSafeArea,
+        cellVectors,
+        layout.groupPosition,
       );
 
       publishCameraViewScaleSnapshot(nextViewScale);
@@ -503,9 +584,12 @@ export function PreviewCameraController({
     return () => controls.removeEventListener("change", handleControlsChange);
   }, [
     camera,
+    cellVectors,
     effectiveSafeArea,
     fitZoom,
     interactionMode,
+    layout.groupPosition,
+    layout.span,
     publishCameraViewScaleSnapshot,
     requestFrame,
     resetCounter,
@@ -531,13 +615,17 @@ export function PreviewCameraController({
       controlsRef.current?.update();
     }
 
-    if (camera instanceof OrthographicCamera) {
-      const nextViewScale = syncOrthographicFrustumToCameraZoom(
+    {
+      const nextViewScale = syncCameraProjectionToCamera(
         camera,
+        cameraPoseRef.current,
+        layout.span,
         fitZoom,
         size.width,
         size.height,
         effectiveSafeArea,
+        cellVectors,
+        layout.groupPosition,
       );
       publishCameraViewScaleSnapshot(nextViewScale);
     }
@@ -572,13 +660,28 @@ function createCameraPoseAnimation(
   camera: { position: Vector3; quaternion: Quaternion },
   targetPose: CrystalCameraPose,
   targetSpan: number,
+  viewScale: number,
+  fitZoom: number,
+  viewportHeight: number,
+  cellVectors: VectorTuple[],
+  groupPosition: VectorTuple,
 ): CameraPoseAnimation {
   return {
     durationMs: CAMERA_COMMAND_ANIMATION_DURATION_MS,
     startDistance: Math.max(camera.position.distanceTo(CAMERA_TARGET), 1e-6),
     startQuaternion: camera.quaternion.clone().normalize(),
     startTimeMs: performance.now(),
-    targetDistance: Math.max(targetPose.distance, 1e-6),
+    targetDistance:
+      camera instanceof PerspectiveCamera
+        ? perspectiveDistanceForViewScale(
+            fitZoom,
+            viewportHeight,
+            viewScale,
+            targetPose,
+            cellVectors,
+            groupPosition,
+          )
+        : Math.max(targetPose.distance, 1e-6),
     targetPose,
     targetQuaternion: targetPose.quaternion.clone().normalize(),
     targetSpan,
@@ -601,7 +704,17 @@ function applyCameraPoseAnimationFrame(
   );
 
   if (progress >= 1) {
-    applyStandardCameraPose(camera, animation.targetPose, animation.targetSpan);
+    applyStandardCameraPose(
+      camera,
+      animation.targetPose,
+      animation.targetSpan,
+      DEFAULT_VIEW_SCALE,
+      1,
+      1,
+      [],
+      [0, 0, 0],
+      animation.targetDistance,
+    );
     return true;
   }
 
@@ -669,16 +782,288 @@ function syncOrthographicFrustumToZoom(
   }
 }
 
+function syncCameraProjectionToViewScale(
+  camera: Parameters<typeof applyStandardCameraPose>[0],
+  pose: CrystalCameraPose,
+  span: number,
+  width: number,
+  height: number,
+  fitZoom: number,
+  viewScale: number,
+  safeArea: PreviewSafeArea,
+  cellVectors: VectorTuple[],
+  groupPosition: VectorTuple,
+) {
+  if (camera instanceof OrthographicCamera) {
+    syncOrthographicFrustumToZoom(camera, width, height, fitZoom * viewScale, safeArea);
+    return;
+  }
+
+  if (camera instanceof PerspectiveCamera) {
+    syncPerspectiveDistanceToViewScale(
+      camera,
+      pose,
+      span,
+      viewScale,
+      width,
+      height,
+      fitZoom,
+      safeArea,
+      cellVectors,
+      groupPosition,
+    );
+  }
+}
+
+function syncCameraProjectionToCamera(
+  camera: Parameters<typeof applyStandardCameraPose>[0],
+  pose: CrystalCameraPose,
+  span: number,
+  fitZoom: number,
+  width: number,
+  height: number,
+  safeArea: PreviewSafeArea,
+  cellVectors: VectorTuple[],
+  groupPosition: VectorTuple,
+): number {
+  if (camera instanceof OrthographicCamera) {
+    return syncOrthographicFrustumToCameraZoom(
+      camera,
+      fitZoom,
+      width,
+      height,
+      safeArea,
+    );
+  }
+
+  if (camera instanceof PerspectiveCamera) {
+    return syncPerspectiveDistanceToCameraPosition(
+      camera,
+      pose,
+      span,
+      fitZoom,
+      width,
+      height,
+      safeArea,
+      cellVectors,
+      groupPosition,
+    );
+  }
+
+  return DEFAULT_VIEW_SCALE;
+}
+
+function cameraViewScaleSnapshot(
+  camera: Parameters<typeof applyStandardCameraPose>[0],
+  fitZoom: number,
+  viewportHeight: number,
+  pose: CrystalCameraPose,
+  cellVectors: VectorTuple[],
+  groupPosition: VectorTuple,
+): number {
+  if (camera instanceof OrthographicCamera) {
+    return camera.zoom;
+  }
+
+  if (camera instanceof PerspectiveCamera) {
+    const frontDepth = perspectiveFrontDepth(pose, cellVectors, groupPosition);
+    return perspectiveViewScaleFromDistance(
+      perspectiveTargetPlaneDistanceForFitZoom(fitZoom, viewportHeight),
+      frontDepth,
+      camera.position.distanceTo(CAMERA_TARGET),
+    );
+  }
+
+  return DEFAULT_VIEW_SCALE;
+}
+
+function syncPerspectiveDistanceToViewScale(
+  camera: PerspectiveCamera,
+  pose: CrystalCameraPose,
+  span: number,
+  viewScale: number,
+  width: number,
+  height: number,
+  fitZoom: number,
+  safeArea: PreviewSafeArea,
+  cellVectors: VectorTuple[],
+  groupPosition: VectorTuple,
+) {
+  const distance = perspectiveDistanceForViewScale(
+    fitZoom,
+    height,
+    viewScale,
+    pose,
+    cellVectors,
+    groupPosition,
+  );
+  const direction = camera.position.clone().sub(CAMERA_TARGET);
+  if (direction.lengthSq() < 1e-12) {
+    direction.set(...pose.outward);
+  }
+  direction.normalize();
+  camera.position.copy(CAMERA_TARGET).add(direction.multiplyScalar(distance));
+  syncPerspectiveProjection(camera, distance, span, width, height, safeArea);
+}
+
+function syncPerspectiveDistanceToCameraPosition(
+  camera: PerspectiveCamera,
+  pose: CrystalCameraPose,
+  span: number,
+  fitZoom: number,
+  width: number,
+  height: number,
+  safeArea: PreviewSafeArea,
+  cellVectors: VectorTuple[],
+  groupPosition: VectorTuple,
+): number {
+  const frontDepth = perspectiveFrontDepth(pose, cellVectors, groupPosition);
+  const nextViewScale = perspectiveViewScaleFromDistance(
+    perspectiveTargetPlaneDistanceForFitZoom(fitZoom, height),
+    frontDepth,
+    camera.position.distanceTo(CAMERA_TARGET),
+  );
+  syncPerspectiveDistanceToViewScale(
+    camera,
+    pose,
+    span,
+    nextViewScale,
+    width,
+    height,
+    fitZoom,
+    safeArea,
+    cellVectors,
+    groupPosition,
+  );
+  return nextViewScale;
+}
+
+function perspectiveDistanceForViewScale(
+  fitZoom: number,
+  viewportHeight: number,
+  viewScale: number,
+  pose: Pick<CrystalCameraPose, "outward">,
+  cellVectors: VectorTuple[],
+  groupPosition: VectorTuple,
+): number {
+  return Math.max(
+    1e-6,
+    perspectiveFrontDepth(pose, cellVectors, groupPosition) +
+      perspectiveTargetPlaneDistanceForFitZoom(fitZoom, viewportHeight) *
+        (DEFAULT_VIEW_SCALE / clampViewScale(viewScale)),
+  );
+}
+
+function perspectiveViewScaleFromDistance(
+  targetPlaneDistance: number,
+  frontDepth: number,
+  distance: number,
+): number {
+  return clampViewScale(
+    (targetPlaneDistance * DEFAULT_VIEW_SCALE) /
+      Math.max(distance - frontDepth, 1e-6),
+  );
+}
+
+function perspectiveTargetPlaneDistanceForFitZoom(
+  fitZoom: number,
+  viewportHeight: number,
+): number {
+  const safeFitZoom = Math.max(0.01, fitZoom);
+  const safeViewportHeight = Math.max(1, viewportHeight);
+  const halfFovRadians = (PERSPECTIVE_CAMERA_FOV_DEGREES * Math.PI) / 360;
+  return safeViewportHeight / (2 * Math.tan(halfFovRadians) * safeFitZoom);
+}
+
+function perspectiveFrontDepth(
+  pose: Pick<CrystalCameraPose, "outward">,
+  cellVectors: VectorTuple[],
+  groupPosition: VectorTuple,
+): number {
+  const outward = new Vector3(...pose.outward).normalize();
+  const offset = new Vector3(...groupPosition);
+  let frontDepth = 0;
+
+  for (const corner of cellCorners(cellVectors)) {
+    frontDepth = Math.max(
+      frontDepth,
+      new Vector3(...corner).add(offset).dot(outward),
+    );
+  }
+
+  return frontDepth;
+}
+
+function syncPerspectiveProjection(
+  camera: PerspectiveCamera,
+  distance: number,
+  span: number,
+  width: number,
+  height: number,
+  safeArea: PreviewSafeArea,
+) {
+  applyPerspectiveSafeAreaViewOffset(camera, width, height, safeArea);
+  camera.near = 0.01;
+  camera.far = Math.max(1000, distance + span * 8);
+  camera.updateProjectionMatrix();
+}
+
+function applyPerspectiveSafeAreaViewOffset(
+  camera: PerspectiveCamera,
+  width: number,
+  height: number,
+  safeArea: PreviewSafeArea,
+) {
+  const viewportWidth = Math.max(1, width);
+  const viewportHeight = Math.max(1, height);
+  const offsetX = (safeArea.right - safeArea.left) / 2;
+  const offsetY = (safeArea.bottom - safeArea.top) / 2;
+
+  if (Math.abs(offsetX) < 0.5 && Math.abs(offsetY) < 0.5) {
+    camera.clearViewOffset();
+    return;
+  }
+
+  camera.setViewOffset(
+    viewportWidth,
+    viewportHeight,
+    offsetX,
+    offsetY,
+    viewportWidth,
+    viewportHeight,
+  );
+}
+
 function configureCameraControls(
   controls: CameraControls,
   interactionMode: InteractionMode,
   interactionLocked: boolean,
   fitZoom: number,
+  viewportHeight: number,
+  pose: CrystalCameraPose,
+  cellVectors: VectorTuple[],
+  groupPosition: VectorTuple,
   dragSensitivity: number,
 ) {
   controls.enabled = !interactionLocked;
   controls.minZoom = fitZoom * MIN_VIEW_SCALE;
   controls.maxZoom = fitZoom * MAX_VIEW_SCALE;
+  controls.minDistance = perspectiveDistanceForViewScale(
+    fitZoom,
+    viewportHeight,
+    MAX_VIEW_SCALE,
+    pose,
+    cellVectors,
+    groupPosition,
+  );
+  controls.maxDistance = perspectiveDistanceForViewScale(
+    fitZoom,
+    viewportHeight,
+    MIN_VIEW_SCALE,
+    pose,
+    cellVectors,
+    groupPosition,
+  );
 
   if (interactionMode === "trackball" && controls instanceof TrackballControls) {
     controls.rotateSpeed = BASE_TRACKBALL_DRAG_SENSITIVITY * dragSensitivity;
@@ -730,8 +1115,29 @@ function applyStandardCameraPose(
   camera: { lookAt: (x: number, y: number, z: number) => void; position: Vector3; up: Vector3 },
   standardPose: StandardCameraPose,
   span: number,
+  viewScale = DEFAULT_VIEW_SCALE,
+  fitZoom = 1,
+  viewportHeight = 1,
+  cellVectors: VectorTuple[] = [],
+  groupPosition: VectorTuple = [0, 0, 0],
+  perspectiveDistance?: number,
 ) {
-  camera.position.set(...standardPose.cameraPosition);
+  const cameraPosition =
+    camera instanceof PerspectiveCamera
+      ? new Vector3(...standardPose.outward).multiplyScalar(
+          perspectiveDistance ??
+            perspectiveDistanceForViewScale(
+              fitZoom,
+              viewportHeight,
+              viewScale,
+              standardPose,
+              cellVectors,
+              groupPosition,
+            ),
+        )
+      : new Vector3(...standardPose.cameraPosition);
+
+  camera.position.copy(cameraPosition);
   camera.up.set(...standardPose.cameraUp);
   camera.lookAt(...standardPose.target);
 
@@ -741,5 +1147,11 @@ function applyStandardCameraPose(
     camera.updateProjectionMatrix();
   }
 
-  camera.position.set(...standardPose.cameraPosition);
+  if (camera instanceof PerspectiveCamera) {
+    camera.near = 0.01;
+    camera.far = Math.max(1000, cameraPosition.distanceTo(CAMERA_TARGET) + span * 8);
+    camera.updateProjectionMatrix();
+  }
+
+  camera.position.copy(cameraPosition);
 }

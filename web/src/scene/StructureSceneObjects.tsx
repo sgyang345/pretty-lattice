@@ -5,6 +5,7 @@ import type { SceneSpec } from "../api/scene";
 import type {
   AtomLabelSettings,
   AtomVectorSettings,
+  ChargeDensityDisplayState,
   ComponentOpacityState,
   StyleState,
   UnitCellLineStyle,
@@ -26,6 +27,7 @@ import { MemoizedBatchedPolyhedra } from "./BatchedPolyhedra";
 import { AtomLabels } from "./AtomLabels";
 import { AtomVectors } from "./AtomVectors";
 import { BrillouinZone } from "./BrillouinZone";
+import { ChargeDensityIsosurfaces } from "./ChargeDensityIsosurfaces";
 import {
   BOND_TUBE_RADIAL_SEGMENTS,
   createSceneFog,
@@ -50,6 +52,7 @@ export const BOND_COLOR = DEFAULT_BOND_COLOR;
 export function PreviewSceneContent({
   atomLabelSettings,
   atomVectors,
+  chargeDensityDisplay,
   componentOpacity,
   layout,
   materialFamilies,
@@ -76,6 +79,7 @@ export function PreviewSceneContent({
 }: {
   atomLabelSettings: AtomLabelSettings | null;
   atomVectors: AtomVectorSettings | null;
+  chargeDensityDisplay: ChargeDensityDisplayState;
   componentOpacity: ComponentOpacityState;
   layout: SceneLayout;
   materialFamilies: ResolvedStructureMaterialFamilies;
@@ -106,6 +110,7 @@ export function PreviewSceneContent({
       <MemoizedStructureSceneObjects
         atomLabelSettings={atomLabelSettings}
         atomVectors={atomVectors}
+        chargeDensityDisplay={chargeDensityDisplay}
         componentOpacity={componentOpacity}
         groupPosition={layout.groupPosition}
         layoutSpan={layout.span}
@@ -185,6 +190,7 @@ export function SceneFog({
 export function StructureSceneObjects({
   atomLabelSettings,
   atomVectors,
+  chargeDensityDisplay,
   componentOpacity,
   groupPosition,
   layoutSpan,
@@ -213,6 +219,7 @@ export function StructureSceneObjects({
 }: {
   atomLabelSettings: AtomLabelSettings | null;
   atomVectors: AtomVectorSettings | null;
+  chargeDensityDisplay: ChargeDensityDisplayState;
   componentOpacity: ComponentOpacityState;
   groupPosition: VectorTuple;
   layoutSpan: number;
@@ -288,6 +295,25 @@ export function StructureSceneObjects({
             opacity={componentOpacity.unitCell / 100}
             lineStyle={unitCellLineStyle}
             vectors={scene.cell.vectors}
+          />
+        ) : null}
+        {!isBrillouinZoneView ? (
+          <ChargeDensityIsosurfaces
+            boundaryColor={chargeDensityDisplay.boundaryColor}
+            boundaryFillOpacity={chargeDensityDisplay.boundaryFillOpacity}
+            cellVectors={scene.cell.vectors}
+            chargeDensity={scene.chargeDensity}
+            fractionalOffset={chargeDensityDisplay.fractionalOffset}
+            interpolationFactor={chargeDensityDisplay.interpolationFactor}
+            isoValue={chargeDensityDisplay.isoValue}
+            negativeColor={chargeDensityDisplay.negativeColor}
+            opacity={componentOpacity.chargeDensity / 100}
+            positiveColor={chargeDensityDisplay.positiveColor}
+            sectionAxis={chargeDensityDisplay.sectionAxis}
+            sectionEnabled={chargeDensityDisplay.sectionEnabled}
+            sectionOpacity={chargeDensityDisplay.sectionOpacity}
+            sectionPosition={chargeDensityDisplay.sectionPosition}
+            surfaceMode={chargeDensityDisplay.surfaceMode}
           />
         ) : null}
         <MemoizedBatchedPolyhedra

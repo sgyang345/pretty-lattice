@@ -4,6 +4,7 @@ import type { AtomSpec, SceneSpec } from "../src/api/scene";
 import {
   atomMeasurementInfoForIds,
   atomInspectorCopyText,
+  atomMeasurementCopyText,
   atomVectorActualInfoForAtom,
   formatAtomVectorForDisplay,
   formatAtomVectorLengthForDisplay,
@@ -98,6 +99,34 @@ describe("atom inspector formatting", () => {
     expect(multiAtomInfo?.delta).toBeNull();
     expect(multiAtomInfo?.distance).toBeNull();
     expect(multiAtomInfo?.angleDegrees).toBeNull();
+  });
+
+  test("copies atom measurement text with selected atoms and distance values", () => {
+    const scene = sceneWithMeasurementAtoms();
+    const info = atomMeasurementInfoForIds(scene, ["Al-1", "Al-2"]);
+
+    expect(atomMeasurementCopyText(info!)).toBe([
+      "Selection: Al1 -> Al2",
+      "",
+      "Atom 1: Al1",
+      "Element: Al",
+      "Index: 1",
+      "Fractional: 0.100000, 0.200000, 0.300000",
+      "Cartesian (A): 1.000000, 2.000000, 3.000000",
+      "Cell offset: 0, 0, 0",
+      "",
+      "Atom 2: Al2",
+      "Element: Al",
+      "Index: 2",
+      "Fractional: 0.400000, 0.200000, 0.300000",
+      "Cartesian (A): 4.000000, 2.000000, 3.000000",
+      "Cell offset: 0, 0, 0",
+      "",
+      "Distance (A): 3.000000",
+      "Delta x (A): 3.000000",
+      "Delta y (A): 0.000000",
+      "Delta z (A): 0.000000",
+    ].join("\n"));
   });
 
   test("scales selected atom vector values by the saved maximum absolute value", () => {

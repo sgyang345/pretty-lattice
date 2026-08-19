@@ -12,6 +12,7 @@ from pretty_lattice.structures.periodic_images import (
 )
 from pretty_lattice.structures.schema import (
     BondAlgorithm,
+    ChargeDensitySpec,
     SceneSpec,
     bond_algorithm_label,
     default_bond_algorithm_for_atom_count,
@@ -27,14 +28,20 @@ def build_scene_response(
     structure: Structure,
     *,
     bond_algorithm: str | None = None,
+    charge_density: ChargeDensitySpec | None = None,
 ) -> SceneSpec:
-    return build_scene_spec(structure, bond_algorithm=bond_algorithm)
+    return build_scene_spec(
+        structure,
+        bond_algorithm=bond_algorithm,
+        charge_density=charge_density,
+    )
 
 
 def build_scene_spec(
     structure: Structure,
     *,
     bond_algorithm: str | None = None,
+    charge_density: ChargeDensitySpec | None = None,
 ) -> SceneSpec:
     normalized_bond_algorithm = normalize_bond_algorithm(bond_algorithm)
     selected_bond_algorithm = normalized_bond_algorithm or default_bond_algorithm_for_atom_count(
@@ -120,6 +127,8 @@ def build_scene_spec(
         "polyhedra": polyhedra,
         "summary": build_structure_summary(structure),
     }
+    if charge_density is not None:
+        scene["chargeDensity"] = charge_density
     if can_generate_periodic_images:
         try:
             scene["brillouinZone"] = brillouin_module.build_brillouin_zone(structure)

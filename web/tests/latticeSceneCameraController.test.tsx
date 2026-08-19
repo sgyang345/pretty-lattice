@@ -1,7 +1,7 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Children, isValidElement, type ReactNode } from "react";
-import { OrthographicCamera, Vector3 } from "three";
+import { OrthographicCamera, PerspectiveCamera, Vector3 } from "three";
 
 import type { SceneSpec } from "../src/api/scene";
 import { DEFAULT_VIEW_SCALE } from "../src/model/viewState";
@@ -130,6 +130,9 @@ const { createDefaultComponentOpacity, createDefaultStyle } =
 const { createCameraInteractionStore } =
   await import("../src/app/cameraInteractionStore");
 const { LatticeScene } = await import("../src/scene/LatticeScene");
+const { computeSceneStructureLayout } = await import("../src/scene/sceneLayout");
+const { cellCorners } = await import("../src/scene/sceneGeometry");
+const { computeCameraFitZoom } = await import("../src/scene/viewMath");
 const {
   applyCrystalCameraRoll,
   computeCrystalCameraPose,
@@ -195,6 +198,142 @@ describe("LatticeScene camera commands", () => {
     expect(latestCanvasCameraProps).toMatchObject({
       position: expectedPose.cameraPosition,
     });
+  });
+
+  test("keeps perspective projection centered within the preview safe area", () => {
+    mockCamera = new PerspectiveCamera() as unknown as OrthographicCamera;
+    const scene = orthogonalScene();
+
+    render(
+      <LatticeScene
+        cameraCommandVersion={0}
+        cameraInteractionStore={createCameraInteractionStore()}
+        cameraState={createDefaultCrystalCameraState(scene.cell.vectors)}
+        componentOpacity={createDefaultComponentOpacity()}
+        interactionLocked={false}
+        interactionMode="trackball"
+        projectionMode="perspective"
+        resetCounter={0}
+        safeArea={{ bottom: 116, left: 176, right: 420, top: 40 }}
+        scene={scene}
+        style={createDefaultStyle()}
+      />,
+    );
+
+    expect((mockCamera as unknown as PerspectiveCamera).view).toMatchObject({
+      enabled: true,
+      fullHeight: 800,
+      fullWidth: 1000,
+      height: 800,
+      offsetX: 122,
+      offsetY: 38,
+      width: 1000,
+    });
+  });
+
+  test("matches perspective default scale to the parallel fit zoom", () => {
+    const scene = orthogonalScene();
+    const commonProps = {
+      cameraCommandVersion: 0,
+      cameraInteractionStore: createCameraInteractionStore(),
+      cameraState: createDefaultCrystalCameraState(scene.cell.vectors),
+      componentOpacity: createDefaultComponentOpacity(),
+      interactionLocked: false,
+      interactionMode: "trackball" as const,
+      resetCounter: 0,
+      scene,
+      style: createDefaultStyle(),
+    };
+    const layout = computeSceneStructureLayout(scene);
+    const expectedFitZoom = computeCameraFitZoom(
+      layout.cameraFitBounds,
+      1000,
+      800,
+      { bottom: 0, left: 0, right: 0, top: 0 },
+    );
+    const cameraPose = computeCrystalCameraPose(
+      scene.cell.vectors,
+      commonProps.cameraState,
+      layout.span,
+    );
+    const frontDepth = frontDepthForPose(
+      scene.cell.vectors,
+      layout.groupPosition,
+      cameraPose.outward,
+    );
+
+    mockCamera = new PerspectiveCamera() as unknown as OrthographicCamera;
+    render(<LatticeScene {...commonProps} projectionMode="perspective" />);
+
+    const fovRadians = (35 * Math.PI) / 180;
+    const perspectiveScale =
+      800 /
+      (2 *
+        Math.tan(fovRadians / 2) *
+        (mockCamera.position.distanceTo(new Vector3()) - frontDepth));
+    expect(perspectiveScale).toBeCloseTo(expectedFitZoom);
+  });
+
+  test("preserves perspective zoom when camera commands rotate the view", () => {
+    mockCamera = new PerspectiveCamera() as unknown as OrthographicCamera;
+    const scene = orthogonalScene();
+    const defaultCamera = createDefaultCrystalCameraState(scene.cell.vectors);
+    const aCamera = stateWithDirectAxis(scene.cell.vectors, defaultCamera, "a");
+    const cameraInteractionStore = createCameraInteractionStore();
+    const props = {
+      cameraCommandVersion: 0,
+      cameraInteractionStore,
+      cameraState: defaultCamera,
+      componentOpacity: createDefaultComponentOpacity(),
+      interactionLocked: false,
+      interactionMode: "trackball" as const,
+      projectionMode: "perspective" as const,
+      resetCounter: 0,
+      scene,
+      style: createDefaultStyle(),
+    };
+    const layout = computeSceneStructureLayout(scene);
+    const fitZoom = computeCameraFitZoom(
+      layout.cameraFitBounds,
+      1000,
+      800,
+      { bottom: 0, left: 0, right: 0, top: 0 },
+    );
+    const fovRadians = (35 * Math.PI) / 180;
+    const targetPlaneDistance = 800 / (2 * Math.tan(fovRadians / 2) * fitZoom);
+    const defaultPose = computeCrystalCameraPose(
+      scene.cell.vectors,
+      defaultCamera,
+      layout.span,
+    );
+    const aPose = computeCrystalCameraPose(scene.cell.vectors, aCamera, layout.span);
+    const defaultFrontDepth = frontDepthForPose(
+      scene.cell.vectors,
+      layout.groupPosition,
+      defaultPose.outward,
+    );
+    const aFrontDepth = frontDepthForPose(
+      scene.cell.vectors,
+      layout.groupPosition,
+      aPose.outward,
+    );
+
+    const { rerender } = render(<LatticeScene {...props} />);
+    act(() => cameraInteractionStore.requestViewScale(2));
+    const zoomedDistance = defaultFrontDepth + targetPlaneDistance * (DEFAULT_VIEW_SCALE / 2);
+    expect(mockCamera.position.distanceTo(new Vector3())).toBeCloseTo(zoomedDistance);
+
+    rerender(
+      <LatticeScene
+        {...props}
+        cameraCommandVersion={1}
+        cameraState={aCamera}
+      />,
+    );
+
+    const rotatedZoomedDistance = aFrontDepth + targetPlaneDistance * (DEFAULT_VIEW_SCALE / 2);
+    expect(mockCamera.position.distanceTo(new Vector3())).toBeCloseTo(rotatedZoomedDistance);
+    expect(mockCamera.position.x).toBeCloseTo(rotatedZoomedDistance);
   });
 
   test("applies drag sensitivity to camera controls", () => {
@@ -721,4 +860,19 @@ function expectVectorClose(actual: Vector3, expected: Vector3) {
   expect(actual.x).toBeCloseTo(expected.x);
   expect(actual.y).toBeCloseTo(expected.y);
   expect(actual.z).toBeCloseTo(expected.z);
+}
+
+function frontDepthForPose(
+  cellVectors: SceneSpec["cell"]["vectors"],
+  groupPosition: [number, number, number],
+  outward: [number, number, number],
+) {
+  const outwardVector = new Vector3(...outward).normalize();
+  const offset = new Vector3(...groupPosition);
+  return Math.max(
+    0,
+    ...cellCorners(cellVectors).map((corner) =>
+      new Vector3(...corner).add(offset).dot(outwardVector),
+    ),
+  );
 }

@@ -1,4 +1,4 @@
-import { Box3, OrthographicCamera, Quaternion, Vector3 } from "three";
+import { Box3, OrthographicCamera, PerspectiveCamera, Quaternion, Vector3 } from "three";
 
 import type { SceneSpec } from "../api/scene";
 import type { StyleState } from "../model/appearance";
@@ -87,6 +87,8 @@ const MIN_PROJECTED_SPAN = 1e-6;
 const LABEL_EXPORT_BASE_HEIGHT = 0.768;
 const LABEL_EXPORT_AVERAGE_CHARACTER_WIDTH = 0.34;
 const LABEL_EXPORT_SIZE_NORMALIZATION = 100;
+const PERSPECTIVE_EXPORT_FOV_MIN_DEGREES = 5;
+const PERSPECTIVE_EXPORT_FOV_MAX_DEGREES = 75;
 
 export function computeStructureExportAspectRatio(
   options: StructureExportGeometryOptions,
@@ -150,6 +152,39 @@ export function applyOrthographicExportFrame(
   camera.top = framePlan.height / 2 + framePlan.centerY;
   camera.bottom = -framePlan.height / 2 + framePlan.centerY;
   camera.zoom = framePlan.zoom;
+  camera.updateProjectionMatrix();
+}
+
+export function applyPerspectiveExportFrame(
+  camera: PerspectiveCamera,
+  framePlan: StructureExportFramePlan,
+  distance: number,
+  span: number,
+) {
+  const safeDistance = Math.max(1e-6, distance);
+  const visibleHeight = Math.max(
+    MIN_PROJECTED_SPAN,
+    framePlan.height / Math.max(0.01, framePlan.zoom),
+  );
+  const fovDegrees =
+    (2 * Math.atan(visibleHeight / (2 * safeDistance)) * 180) / Math.PI;
+  const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+  const up = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+  const forward = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+  const target = right
+    .clone()
+    .multiplyScalar(framePlan.centerX)
+    .add(up.clone().multiplyScalar(framePlan.centerY));
+
+  camera.fov = Math.min(
+    PERSPECTIVE_EXPORT_FOV_MAX_DEGREES,
+    Math.max(PERSPECTIVE_EXPORT_FOV_MIN_DEGREES, fovDegrees),
+  );
+  camera.position.copy(target).sub(forward.multiplyScalar(safeDistance));
+  camera.up.copy(up);
+  camera.lookAt(target);
+  camera.near = 0.01;
+  camera.far = Math.max(1000, safeDistance + span * 8);
   camera.updateProjectionMatrix();
 }
 

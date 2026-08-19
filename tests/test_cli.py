@@ -89,6 +89,24 @@ def test_rewrite_file_open_args_handles_missing_structure_like_path() -> None:
         "STRU",
         "--no-open",
     ]
+    assert _rewrite_file_open_args(["CHGCAR", "--no-open"]) == [
+        "gui",
+        "--file",
+        "CHGCAR",
+        "--no-open",
+    ]
+    assert _rewrite_file_open_args(["CHGCAR_diff", "--no-open"]) == [
+        "gui",
+        "--file",
+        "CHGCAR_diff",
+        "--no-open",
+    ]
+    assert _rewrite_file_open_args(["PARCHG", "--no-open"]) == [
+        "gui",
+        "--file",
+        "PARCHG",
+        "--no-open",
+    ]
     assert _rewrite_file_open_args(["saved.prl", "--no-open"]) == [
         "gui",
         "--file",

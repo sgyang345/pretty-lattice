@@ -10,8 +10,11 @@ import {
   DEFAULT_PREVIEW_MESH_QUALITY,
   type AtomLabelSettings,
   type AtomVectorSettings,
+  type ChargeDensityDisplayState,
   type ComponentOpacityState,
+  createDefaultChargeDensityDisplayState,
   type MeshQuality,
+  type ProjectionMode,
   type StyleState,
   type UnitCellLineStyle,
 } from "../model";
@@ -65,11 +68,12 @@ export interface CameraOrientationRef {
   current: Quaternion;
 }
 
-interface OrthographicCanvasCameraProps {
+interface CanvasCameraProps {
   far: number;
+  fov?: number;
   near: number;
   position: VectorTuple;
-  zoom: number;
+  zoom?: number;
 }
 
 interface ClientPoint {
@@ -99,6 +103,7 @@ const CAMERA_ORIENTATION_CHANGE_EPSILON = 0.002;
 const FPS_IDLE_TIMEOUT_MS = 550;
 const FPS_REPORT_INTERVAL_MS = 250;
 const FPS_SMOOTHING_WEIGHT = 0.18;
+export const PERSPECTIVE_CAMERA_FOV_DEGREES = 35;
 
 export function LatticeScene({
   cameraOrientationRef,
@@ -106,6 +111,7 @@ export function LatticeScene({
   cameraInteractionStore,
   cameraState,
   cameraCommandVersion,
+  chargeDensityDisplay = createDefaultChargeDensityDisplayState(),
   componentOpacity,
   dragSensitivity = DEFAULT_DRAG_SENSITIVITY,
   interactionLocked,
@@ -130,6 +136,7 @@ export function LatticeScene({
   measuredAtomIds = [],
   pulseAtomId = null,
   pulseToken = 0,
+  projectionMode = "parallel",
   previewMeshQuality = DEFAULT_PREVIEW_MESH_QUALITY,
   previewFpsStore,
   atomLabelSettings = null,
@@ -147,6 +154,7 @@ export function LatticeScene({
   cameraInteractionStore: CameraInteractionStore;
   cameraCommandVersion: number;
   cameraState: CrystalCameraState;
+  chargeDensityDisplay?: ChargeDensityDisplayState;
   componentOpacity: ComponentOpacityState;
   dragSensitivity?: number;
   interactionLocked: boolean;
@@ -174,6 +182,7 @@ export function LatticeScene({
   measuredAtomIds?: string[];
   pulseAtomId?: string | null;
   pulseToken?: number;
+  projectionMode?: ProjectionMode;
   previewMeshQuality?: MeshQuality;
   previewFpsStore?: PreviewFpsStore;
   atomLabelSettings?: AtomLabelSettings | null;
@@ -207,15 +216,29 @@ export function LatticeScene({
     }),
     [cameraPose, structureLayout],
   );
-  const cameraProps = useMemo<OrthographicCanvasCameraProps>(
-    () => ({
+  const cameraProps = useMemo<CanvasCameraProps>(() => {
+    const far = Math.max(1000, layout.cameraPose.distance + layout.span * 8);
+    if (projectionMode === "perspective") {
+      return {
+        position: layout.cameraPose.cameraPosition,
+        fov: PERSPECTIVE_CAMERA_FOV_DEGREES,
+        near: 0.01,
+        far,
+      };
+    }
+
+    return {
       position: layout.cameraPose.cameraPosition,
       zoom: 1,
       near: 0.01,
-      far: Math.max(1000, layout.cameraPose.distance + layout.span * 8),
-    }),
-    [layout.cameraPose.cameraPosition, layout.cameraPose.distance, layout.span],
-  );
+      far,
+    };
+  }, [
+    layout.cameraPose.cameraPosition,
+    layout.cameraPose.distance,
+    layout.span,
+    projectionMode,
+  ]);
   const materialFamily = useMemo(
     () => resolveStructureMaterialFamilyForStyle(style),
     [style.materialPreset],
@@ -227,7 +250,8 @@ export function LatticeScene({
 
   return (
     <Canvas
-      orthographic
+      key={projectionMode}
+      orthographic={projectionMode === "parallel"}
       camera={cameraProps}
       frameloop="demand"
       gl={DEFAULT_RENDERER_PARAMETERS}
@@ -255,6 +279,7 @@ export function LatticeScene({
       <PreviewSceneContent
         atomLabelSettings={atomLabelSettings}
         atomVectors={atomVectors}
+        chargeDensityDisplay={chargeDensityDisplay}
         componentOpacity={componentOpacity}
         layout={layout}
         materialFamilies={materialFamilies}

@@ -6,9 +6,30 @@ from tempfile import TemporaryDirectory
 from pymatgen.core import Lattice, Structure
 from pymatgen.core.units import bohr_to_angstrom
 
+from pretty_lattice.structures.charge_density import (
+    ChargeDensityReadError,
+    is_charge_density_filename,
+    looks_like_charge_density_bytes,
+    looks_like_charge_density_file,
+    read_charge_density_bytes,
+    read_charge_density_file,
+)
+from pretty_lattice.structures.schema import ChargeDensitySpec
+
 
 class StructureReadError(ValueError):
     """Raised when a structure file cannot be parsed for preview."""
+
+
+class StructurePreviewReadResult:
+    def __init__(
+        self,
+        structure: Structure,
+        *,
+        charge_density: ChargeDensitySpec | None = None,
+    ) -> None:
+        self.structure = structure
+        self.charge_density = charge_density
 
 
 def read_structure(path: str | Path) -> Structure:
@@ -26,6 +47,23 @@ def read_structure(path: str | Path) -> Structure:
     return _ensure_structure(structure, structure_path.name)
 
 
+def read_structure_preview(path: str | Path) -> StructurePreviewReadResult:
+    structure_path = Path(path)
+    if is_charge_density_filename(structure_path) or looks_like_charge_density_file(
+        structure_path
+    ):
+        try:
+            structure, charge_density = read_charge_density_file(structure_path)
+            return StructurePreviewReadResult(
+                _ensure_structure(structure, structure_path.name),
+                charge_density=charge_density,
+            )
+        except ChargeDensityReadError as exc:
+            raise StructureReadError(str(exc)) from exc
+
+    return StructurePreviewReadResult(read_structure(structure_path))
+
+
 def read_structure_bytes(payload: bytes, filename: str | None = None) -> Structure:
     if not payload:
         raise StructureReadError("Uploaded structure file is empty.")
@@ -41,6 +79,24 @@ def read_structure_bytes(payload: bytes, filename: str | None = None) -> Structu
         raise StructureReadError(f"Could not parse {display_name}: {exc}") from exc
 
     return _ensure_structure(structure, display_name)
+
+
+def read_structure_preview_bytes(
+    payload: bytes,
+    filename: str | None = None,
+) -> StructurePreviewReadResult:
+    display_name = filename or "uploaded structure"
+    if is_charge_density_filename(display_name) or looks_like_charge_density_bytes(payload):
+        try:
+            structure, charge_density = read_charge_density_bytes(payload, filename=display_name)
+            return StructurePreviewReadResult(
+                _ensure_structure(structure, display_name),
+                charge_density=charge_density,
+            )
+        except ChargeDensityReadError as exc:
+            raise StructureReadError(str(exc)) from exc
+
+    return StructurePreviewReadResult(read_structure_bytes(payload, filename=filename))
 
 
 def _safe_upload_name(filename: str) -> str:

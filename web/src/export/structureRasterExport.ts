@@ -3,6 +3,7 @@ import type { CameraPoseSnapshot } from "../scene/cameraPose";
 import type { RasterExportImage } from "../scene/exportRenderer";
 import type {
   AtomVectorSettings,
+  ChargeDensityDisplayState,
   ComponentOpacityState,
   ComponentVisibilityState,
   ExportSettingsState,
@@ -19,6 +20,7 @@ const DARK_BACKGROUND_UNIT_CELL_LINE_COLOR = "#bbbbbb";
 export async function renderExportRaster({
   atomVectors,
   cameraPose,
+  chargeDensityDisplay,
   componentOpacity,
   componentVisibility,
   lightStrength,
@@ -29,6 +31,7 @@ export async function renderExportRaster({
 }: {
   atomVectors: AtomVectorSettings;
   cameraPose: CameraPoseSnapshot;
+  chargeDensityDisplay: ChargeDensityDisplayState;
   componentOpacity: ComponentOpacityState;
   componentVisibility: ComponentVisibilityState;
   lightStrength: number;
@@ -47,6 +50,7 @@ export async function renderExportRaster({
     atomVectors,
     backgroundColor: exportBackgroundColor(settings.background),
     cameraPose,
+    chargeDensityDisplay,
     componentOpacity,
     height: settings.height,
     imageFormat: rasterFormatForExportFormat(settings.format),

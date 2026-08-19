@@ -15,7 +15,7 @@ import { elementRadiusSymbols } from "../src/app/elementRadii";
 
 describe("color schemes", () => {
   test("loads bundled colormaps from catalog data", () => {
-    expect(DEFAULT_COLOR_SCHEME_ID).toBe("vesta-soft");
+    expect(DEFAULT_COLOR_SCHEME_ID).toBe("vesta");
     expect(COLOR_SCHEMES.map((colormap) => colormap.id)).toEqual([
       "vesta-soft",
       "vesta",

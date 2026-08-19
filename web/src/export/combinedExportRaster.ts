@@ -7,6 +7,7 @@ import type {
 } from "../scene/exportRenderer";
 import type {
   AtomVectorSettings,
+  ChargeDensityDisplayState,
   ComponentOpacityState,
   ComponentVisibilityState,
   ExportSettingsState,
@@ -40,6 +41,7 @@ const EXPORT_ACCESSORY_PADDING_RATIO = 0.08;
 interface CombinedExportRasterOptions {
   atomVectors: AtomVectorSettings;
   cameraPose: CameraPoseSnapshot;
+  chargeDensityDisplay: ChargeDensityDisplayState;
   componentOpacity: ComponentOpacityState;
   componentVisibility: ComponentVisibilityState;
   lightStrength: number;
@@ -61,6 +63,7 @@ interface CombinedExportLayer {
 export async function renderCombinedExportRaster({
   atomVectors,
   cameraPose,
+  chargeDensityDisplay,
   componentOpacity,
   componentVisibility,
   lightStrength,
@@ -82,6 +85,7 @@ export async function renderCombinedExportRaster({
     const structureImage = await renderExportRaster({
       atomVectors,
       cameraPose,
+      chargeDensityDisplay,
       componentOpacity,
       componentVisibility,
       lightStrength,
