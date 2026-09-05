@@ -69,6 +69,28 @@ describe("structure text export", () => {
     expect(stru.text).toContain("ATOMIC_POSITIONS\nDirect");
     expect(stru.text).toContain("0.5  0.5  0.5  1  1  1");
   });
+
+  test("preserves sixteen decimal places in structure text", () => {
+    const scene = minimalScene();
+    scene.cell.vectors[0] = [1.1234567890123456, 0, 0];
+    scene.atoms[1]!.fractionalPosition = [
+      0.1234567890123456,
+      0.9999999999999999,
+      0.5,
+    ];
+
+    const poscar = createStructureTextExportFile({
+      componentVisibility: createDefaultComponentVisibility(scene),
+      format: "vasp",
+      scene,
+      selectedFileName: "precise.vasp",
+    });
+
+    expect(poscar.text).toContain("1.1234567890123457  0  0");
+    expect(poscar.text).toContain(
+      "0.1234567890123456  0.9999999999999999  0.5  Cl",
+    );
+  });
 });
 
 function minimalScene(): SceneSpec {

@@ -47,6 +47,7 @@ export function InstancedAtoms({
   colorScheme,
   colorOverrides,
   inspectedAtomId,
+  selectedAtomIds = [],
   interactionLocked,
   materialFamily,
   measuredAtomIds = [],
@@ -65,6 +66,7 @@ export function InstancedAtoms({
   colorScheme: StyleState["colorScheme"];
   colorOverrides?: ElementColorOverrides;
   inspectedAtomId: string | null;
+  selectedAtomIds?: string[];
   interactionLocked: boolean;
   materialFamily: ResolvedStructureMaterialFamily;
   measuredAtomIds?: string[];
@@ -115,6 +117,10 @@ export function InstancedAtoms({
     inspectedAtomId,
   );
   const measuredInstances = measuredAtomIds.flatMap((atomId) => {
+    const instance = instanceForAtomId(atomInstances, atomIndexById, atomId);
+    return instance ? [instance] : [];
+  });
+  const selectedInstances = selectedAtomIds.flatMap((atomId) => {
     const instance = instanceForAtomId(atomInstances, atomIndexById, atomId);
     return instance ? [instance] : [];
   });
@@ -277,6 +283,13 @@ export function InstancedAtoms({
       {measuredInstances.map(({ instance }) => (
         <InstancedAtomSelectionRing
           key={`measure-${instance.atom.id}`}
+          position={instance.atom.position}
+          radius={instance.radius}
+        />
+      ))}
+      {selectedInstances.map(({ instance }) => (
+        <InstancedAtomSelectionRing
+          key={`position-${instance.atom.id}`}
           position={instance.atom.position}
           radius={instance.radius}
         />

@@ -466,7 +466,7 @@ describe("App", () => {
     await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
 
     const sodiumXInput = within(commonControls).getByRole("textbox", {
-      name: "Na1 fractional x",
+      name: "Na1 fractional a",
     });
     queueFetchResponse(jsonResponse(sceneWithPeriodicImages()));
     await user.clear(sodiumXInput);
@@ -2144,7 +2144,7 @@ describe("App", () => {
     await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
 
     const sodiumXInput = within(commonControls).getByRole("textbox", {
-      name: "Na1 fractional x",
+      name: "Na1 fractional a",
     });
     queueFetchResponse(jsonResponse(sceneWithPeriodicImages()));
     await user.clear(sodiumXInput);
@@ -2161,6 +2161,105 @@ describe("App", () => {
     await expect((body as File).text()).resolves.toContain("0.25  0  0  Na");
   });
 
+  test("moves only the selected atom while keeping all-atoms fallback", async () => {
+    const user = userEvent.setup();
+
+    await renderLoadedStructure(user);
+    const commonControls = screen.getByRole("complementary", { name: "Common controls" });
+    await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
+
+    const increaseX = within(commonControls).getByRole("button", {
+      name: "Increase fractional a",
+    });
+    await user.click(within(commonControls).getByRole("checkbox", { name: "Select Na1" }));
+    expect((increaseX as HTMLButtonElement).disabled).toBe(false);
+
+    queueFetchResponse(jsonResponse(sceneWithPeriodicImages()));
+    await user.click(increaseX);
+    await waitFor(() => expect(fetchCalls).toHaveLength(2));
+
+    const body = fetchCalls[1]?.init?.body;
+    expect(body).toBeInstanceOf(File);
+    const text = await (body as File).text();
+    expect(text).toContain("0.01  0  0  Na");
+    expect(text).toContain("0  0  0  Cl");
+  });
+
+  test("moves all atoms by the configured a, b, c steps", async () => {
+    const user = userEvent.setup();
+
+    await renderLoadedStructure(user);
+    const commonControls = screen.getByRole("complementary", { name: "Common controls" });
+    await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
+
+    const aStep = within(commonControls).getByRole("textbox", {
+      name: "a translation step",
+    });
+    const bStep = within(commonControls).getByRole("textbox", {
+      name: "b translation step",
+    });
+    const cStep = within(commonControls).getByRole("textbox", {
+      name: "c translation step",
+    });
+    await user.clear(aStep);
+    await user.type(aStep, "-1/4{Enter}");
+    await user.clear(bStep);
+    await user.type(bStep, "1/5{Enter}");
+    await user.clear(cStep);
+    await user.type(cStep, "0{Enter}");
+
+    queueFetchResponse(jsonResponse(sceneWithPeriodicImages()));
+    await user.click(within(commonControls).getByRole("button", {
+      name: "Increase fractional a, b, c",
+    }));
+    await waitFor(() => expect(fetchCalls).toHaveLength(2));
+
+    const body = fetchCalls[1]?.init?.body;
+    expect(body).toBeInstanceOf(File);
+    const text = await (body as File).text();
+    expect(text).toContain("0.75  0.2  0  Na");
+    expect(text).toContain("0.75  0.2  0  Cl");
+  });
+
+  test("syncs total step to a, b, c until an axis is edited", async () => {
+    const user = userEvent.setup();
+
+    await renderLoadedStructure(user);
+    const commonControls = screen.getByRole("complementary", { name: "Common controls" });
+    await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
+
+    const globalStep = within(commonControls).getByRole("textbox", {
+      name: "Fractional translation step",
+    });
+    const aStep = within(commonControls).getByRole("textbox", { name: "a translation step" });
+    const bStep = within(commonControls).getByRole("textbox", { name: "b translation step" });
+    const cStep = within(commonControls).getByRole("textbox", { name: "c translation step" });
+
+    await user.clear(globalStep);
+    await user.type(globalStep, "1/3{Enter}");
+    expect((aStep as HTMLInputElement).value).toBe("0.3333333333333333");
+    expect((bStep as HTMLInputElement).value).toBe("0.3333333333333333");
+    expect((cStep as HTMLInputElement).value).toBe("0.3333333333333333");
+
+    await user.clear(aStep);
+    await user.type(aStep, "-1/4{Enter}");
+    expect((globalStep as HTMLInputElement).disabled).toBe(true);
+    expect((aStep as HTMLInputElement).value).toBe("-0.25");
+
+    await user.clear(bStep);
+    await user.type(bStep, "-1/4{Enter}");
+    await user.clear(cStep);
+    await user.type(cStep, "-1/4{Enter}");
+    expect((globalStep as HTMLInputElement).disabled).toBe(false);
+    expect((globalStep as HTMLInputElement).value).toBe("-0.25");
+
+    await user.clear(globalStep);
+    await user.type(globalStep, "0.2{Enter}");
+    expect((aStep as HTMLInputElement).value).toBe("0.2");
+    expect((bStep as HTMLInputElement).value).toBe("0.2");
+    expect((cStep as HTMLInputElement).value).toBe("0.2");
+  });
+
   test("uses a structure filename for atom position rebuilds from charge-density sources", async () => {
     const user = userEvent.setup();
 
@@ -2173,7 +2272,7 @@ describe("App", () => {
     await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
 
     const sodiumXInput = within(commonControls).getByRole("textbox", {
-      name: "Na1 fractional x",
+      name: "Na1 fractional a",
     });
     queueFetchResponse(jsonResponse(sceneWithPeriodicImages({ chargeDensity: true })));
     await user.clear(sodiumXInput);
@@ -2196,9 +2295,10 @@ describe("App", () => {
     expect(oneHopSwitch.getAttribute("aria-checked")).toBe("true");
 
     await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
+    await user.click(within(commonControls).getByRole("radio", { name: "All" }));
     queueFetchResponse(jsonResponse(sceneWithPeriodicImages()));
     await user.click(within(commonControls).getByRole("button", {
-      name: "Increase fractional z",
+      name: "Increase fractional c",
     }));
     await user.click(within(commonControls).getByRole("tab", { name: "Display" }));
 
@@ -2227,9 +2327,10 @@ describe("App", () => {
     expect(oneHopSwitch.getAttribute("aria-checked")).toBe("false");
 
     await user.click(within(commonControls).getByRole("tab", { name: "Pose" }));
+    await user.click(within(commonControls).getByRole("radio", { name: "All" }));
     queueFetchResponse(jsonResponse(sceneWithPeriodicImages()));
     await user.click(within(commonControls).getByRole("button", {
-      name: "Increase fractional z",
+      name: "Increase fractional c",
     }));
     await user.click(within(commonControls).getByRole("tab", { name: "Display" }));
 

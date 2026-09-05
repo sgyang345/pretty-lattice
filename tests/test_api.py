@@ -94,9 +94,9 @@ async def test_structure_preview_upload_endpoint_returns_scene() -> None:
             "formula": "SrTiO3",
             "atomCount": 5,
             "cell": {
-                "a": "3.91",
-                "b": "3.91",
-                "c": "3.91",
+                "a": "3.91270131",
+                "b": "3.91270131",
+                "c": "3.91270131",
                 "alpha": "90.0",
                 "beta": "90.0",
                 "gamma": "90.0",

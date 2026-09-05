@@ -18,8 +18,8 @@ import {
 
 describe("atom inspector formatting", () => {
   test("formats visible coordinates compactly and copy coordinates precisely", () => {
-    expect(formatAtomCoordinateForDisplay([0, -0, 0.1479044])).toBe("0.000, 0.000, 0.148");
-    expect(formatAtomCoordinateForCopy([0, -0, 0.1479044])).toBe("0.000000, 0.000000, 0.147904");
+    expect(formatAtomCoordinateForDisplay([0, -0, 0.1479044])).toBe("0, 0, 0.1479044");
+    expect(formatAtomCoordinateForCopy([0, -0, 0.1479044])).toBe("0, 0, 0.1479044");
   });
 
   test("formats cell offsets without explicit positive signs", () => {
@@ -39,8 +39,8 @@ describe("atom inspector formatting", () => {
       "Label: Al1",
       "Element: Al",
       "Index: 1",
-      "Fractional: 0.250000, 0.500000, 0.147904",
-      "Cartesian (A): 1.200000, 2.300000, 1.939946",
+      "Fractional: 0.25, 0.5, 0.1479044",
+      "Cartesian (A): 1.2, 2.3, 1.9399463",
       "Cell offset: 1, 0, -1",
     ].join("\n"));
   });
@@ -69,7 +69,7 @@ describe("atom inspector formatting", () => {
     const angleInfo = atomMeasurementInfoForIds(scene, ["Al-1", "Al-2", "Al-3"]);
 
     expect(angleInfo?.atoms.map((atom) => atom.id)).toEqual(["Al-1", "Al-2", "Al-3"]);
-    expect(formatAtomAngleForDisplay(angleInfo!.angleDegrees!)).toBe("90.000");
+    expect(formatAtomAngleForDisplay(angleInfo!.angleDegrees!)).toBe("90");
 
     const reverseSelectedInfo = atomMeasurementInfoForIds(scene, ["Al-3", "Al-1", "Al-2"]);
 
@@ -79,7 +79,7 @@ describe("atom inspector formatting", () => {
       "Al-3",
     ]);
     expect(reverseSelectedInfo?.delta).toEqual([3, 0, 0]);
-    expect(formatAtomAngleForDisplay(reverseSelectedInfo!.angleDegrees!)).toBe("90.000");
+    expect(formatAtomAngleForDisplay(reverseSelectedInfo!.angleDegrees!)).toBe("90");
 
     const multiAtomInfo = atomMeasurementInfoForIds(scene, [
       "Al-1",
@@ -111,21 +111,21 @@ describe("atom inspector formatting", () => {
       "Atom 1: Al1",
       "Element: Al",
       "Index: 1",
-      "Fractional: 0.100000, 0.200000, 0.300000",
-      "Cartesian (A): 1.000000, 2.000000, 3.000000",
+      "Fractional: 0.1, 0.2, 0.3",
+      "Cartesian (A): 1, 2, 3",
       "Cell offset: 0, 0, 0",
       "",
       "Atom 2: Al2",
       "Element: Al",
       "Index: 2",
-      "Fractional: 0.400000, 0.200000, 0.300000",
-      "Cartesian (A): 4.000000, 2.000000, 3.000000",
+      "Fractional: 0.4, 0.2, 0.3",
+      "Cartesian (A): 4, 2, 3",
       "Cell offset: 0, 0, 0",
       "",
-      "Distance (A): 3.000000",
-      "Delta x (A): 3.000000",
-      "Delta y (A): 0.000000",
-      "Delta z (A): 0.000000",
+      "Distance (A): 3",
+      "Delta x (A): 3",
+      "Delta y (A): 0",
+      "Delta z (A): 0",
     ].join("\n"));
   });
 
@@ -149,8 +149,8 @@ describe("atom inspector formatting", () => {
     });
 
     expect(vectorInfo?.vector).toEqual([1, -0.5, 2.5]);
-    expect(formatAtomVectorForDisplay(vectorInfo!.vector)).toBe("1.000, -0.500, 2.500");
-    expect(formatAtomVectorLengthForDisplay(vectorInfo!.length)).toBe("2.739");
+    expect(formatAtomVectorForDisplay(vectorInfo!.vector)).toBe("1, -0.5, 2.5");
+    expect(formatAtomVectorLengthForDisplay(vectorInfo!.length)).toBe("2.73861278752583");
   });
 });
 

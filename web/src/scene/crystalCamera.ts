@@ -610,7 +610,7 @@ function snapCoefficient(value: number): number {
     return rounded;
   }
 
-  return Number(value.toFixed(4));
+  return value;
 }
 
 function degreesToRadians(degrees: number): number {

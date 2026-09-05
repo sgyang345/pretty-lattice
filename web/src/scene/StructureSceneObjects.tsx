@@ -59,6 +59,7 @@ export function PreviewSceneContent({
   meshDetail,
   scene,
   inspectedAtomId,
+  selectedAtomIds,
   inspectedKPointIds,
   measuredAtomIds,
   interactionLocked,
@@ -86,6 +87,7 @@ export function PreviewSceneContent({
   meshDetail: SceneMeshDetail;
   scene: SceneSpec;
   inspectedAtomId: string | null;
+  selectedAtomIds: string[];
   inspectedKPointIds: string[];
   measuredAtomIds: string[];
   interactionLocked: boolean;
@@ -118,6 +120,7 @@ export function PreviewSceneContent({
         meshDetail={meshDetail}
         scene={scene}
         inspectedAtomId={inspectedAtomId}
+        selectedAtomIds={selectedAtomIds}
         inspectedKPointIds={inspectedKPointIds}
         measuredAtomIds={measuredAtomIds}
         interactionLocked={interactionLocked}
@@ -199,6 +202,7 @@ export function StructureSceneObjects({
   meshDetail,
   scene,
   inspectedAtomId = null,
+  selectedAtomIds = [],
   inspectedKPointIds = [],
   measuredAtomIds = [],
   onAtomInspect,
@@ -228,6 +232,7 @@ export function StructureSceneObjects({
   meshDetail: SceneMeshDetail;
   scene: SceneSpec;
   inspectedAtomId?: string | null;
+  selectedAtomIds?: string[];
   inspectedKPointIds?: string[];
   measuredAtomIds?: string[];
   onAtomInspect?: (atomId: string | null) => void;
@@ -339,6 +344,7 @@ export function StructureSceneObjects({
             colorScheme={colorScheme}
             colorOverrides={colorOverrides}
             inspectedAtomId={inspectedAtomId}
+            selectedAtomIds={selectedAtomIds}
             interactionLocked={interactionLocked}
             materialFamily={materialFamilies.atom}
             measuredAtomIds={measuredAtomIds}

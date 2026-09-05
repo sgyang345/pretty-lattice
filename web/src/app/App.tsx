@@ -873,6 +873,7 @@ export function App() {
   const [inspectedAtomId, setInspectedAtomId] = useState<string | null>(null);
   const [inspectedKPointIds, setInspectedKPointIds] = useState<string[]>([]);
   const [measuredAtomIds, setMeasuredAtomIds] = useState<string[]>([]);
+  const [positionSelectedSiteIds, setPositionSelectedSiteIds] = useState<string[]>([]);
   const [atomBoxSelection, setAtomBoxSelection] = useState<AtomBoxSelectionDrag | null>(null);
   const [pulseAtom, setPulseAtom] = useState<{ atomId: string; token: number } | null>(null);
   const [saveProjectMessage, setSaveProjectMessage] = useState<string | null>(null);
@@ -888,7 +889,8 @@ export function App() {
   const viewportSize = useViewportSize();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const atomBoxSelectionSnapshotRef = useRef<AtomBoxSelectionSnapshot | null>(null);
-  const atomPositionBaselineSceneRef = useRef<SceneSpec | null>(null);
+  const atomPositionInitialSceneRef = useRef<SceneSpec | null>(null);
+  const atomPositionTopologySceneRef = useRef<SceneSpec | null>(null);
   const atomPositionRestoreOneHopAfterRebuildRef = useRef(false);
   const atomPositionRebuildSceneRef = useRef<SceneSpec | null>(null);
   const atomPositionRebuildTimeoutRef = useRef<number | null>(null);
@@ -906,6 +908,7 @@ export function App() {
     setInspectedAtomId(null);
     setInspectedKPointIds([]);
     setMeasuredAtomIds([]);
+    setPositionSelectedSiteIds([]);
     setAtomBoxSelection(null);
     setPulseAtom(null);
   }, []);
@@ -935,14 +938,16 @@ export function App() {
     };
   }, [clearAtomSelection]);
   const handlePreviewCleared = useCallback(() => {
-    atomPositionBaselineSceneRef.current = null;
+    atomPositionInitialSceneRef.current = null;
+    atomPositionTopologySceneRef.current = null;
     atomPositionRestoreOneHopAfterRebuildRef.current = false;
     clearAtomSelection();
     setIsInspectorOpen(false);
     setIsStructureSummaryCollapsed(true);
   }, [clearAtomSelection]);
   const handleBondAlgorithmSceneLoaded = useCallback((nextScene: SceneSpec) => {
-    atomPositionBaselineSceneRef.current = nextScene;
+    atomPositionInitialSceneRef.current = nextScene;
+    atomPositionTopologySceneRef.current = nextScene;
     atomPositionRestoreOneHopAfterRebuildRef.current = false;
     clearAtomSelection();
     setPreviewMeshQuality(defaultPreviewMeshQualityForScene(nextScene));
@@ -1019,29 +1024,28 @@ export function App() {
         : atomMeasurementInfoForIds(visibleScene, measuredAtomIds),
     [isBrillouinZoneView, measuredAtomIds, visibleScene],
   );
-  const selectedAtomSiteIds = useMemo(() => {
+  const selectedAtomSiteIds = positionSelectedSiteIds;
+  const selectedAtomIds = useMemo(() => {
     if (!scene) {
       return [];
     }
 
-    const atomById = new Map([
-      ...scene.atoms.map((atom) => [atom.id, atom] as const),
-      ...(visibleScene?.atoms.map((atom) => [atom.id, atom] as const) ?? []),
-    ]);
-    const siteIds = new Set<string>();
-    for (const atomId of [inspectedAtomId, ...measuredAtomIds]) {
-      if (!atomId) {
-        continue;
-      }
-
-      const atom = atomById.get(atomId);
-      if (atom) {
-        siteIds.add(atom.siteId);
-      }
+    const selectedSiteIdSet = new Set(positionSelectedSiteIds);
+    return scene.atoms
+      .filter((atom) => !atom.isPeriodicImage && selectedSiteIdSet.has(atom.siteId))
+      .map((atom) => atom.id);
+  }, [positionSelectedSiteIds, scene]);
+  useEffect(() => {
+    if (!scene || positionSelectedSiteIds.length === 0) {
+      return;
     }
 
-    return Array.from(siteIds);
-  }, [inspectedAtomId, measuredAtomIds, scene, visibleScene]);
+    const validSiteIds = new Set(allCanonicalAtomSiteIds(scene.atoms));
+    const nextSiteIds = positionSelectedSiteIds.filter((siteId) => validSiteIds.has(siteId));
+    if (nextSiteIds.length !== positionSelectedSiteIds.length) {
+      setPositionSelectedSiteIds(nextSiteIds);
+    }
+  }, [positionSelectedSiteIds, scene]);
   const hasVisibleScene = displayScene !== null;
   const {
     cameraAnimatedCommandVersion,
@@ -1356,9 +1360,11 @@ export function App() {
       setErrorMessage(null);
       atomPositionRestoreOneHopAfterRebuildRef.current = false;
       if (!options.preserveActiveCommonPanelTab && !options.preserveInspectorOpen) {
-        atomPositionBaselineSceneRef.current = nextScene;
+        atomPositionInitialSceneRef.current = nextScene;
+        atomPositionTopologySceneRef.current = nextScene;
       } else if (nextScene === null) {
-        atomPositionBaselineSceneRef.current = null;
+        atomPositionInitialSceneRef.current = null;
+        atomPositionTopologySceneRef.current = null;
       }
       resetExportState();
       clearAtomSelection();
@@ -1451,6 +1457,39 @@ export function App() {
     }
   }, []);
 
+  const togglePositionSelectedAtomIds = useCallback(
+    (atomIds: readonly string[]) => {
+      if (!scene || atomIds.length === 0) {
+        return;
+      }
+
+      const siteIds = Array.from(
+        new Set(
+          atomIds.flatMap((atomId) => {
+            const atom = scene.atoms.find((candidate) => candidate.id === atomId);
+            return atom ? [atom.siteId] : [];
+          }),
+        ),
+      );
+      if (siteIds.length === 0) {
+        return;
+      }
+
+      setPositionSelectedSiteIds((currentSiteIds) => {
+        const nextSiteIds = new Set(currentSiteIds);
+        for (const siteId of siteIds) {
+          if (nextSiteIds.has(siteId)) {
+            nextSiteIds.delete(siteId);
+          } else {
+            nextSiteIds.add(siteId);
+          }
+        }
+        return Array.from(nextSiteIds);
+      });
+    },
+    [scene],
+  );
+
   const toggleMeasuredAtomIds = useCallback((atomIds: readonly string[]) => {
     if (atomIds.length === 0) {
       return;
@@ -1489,18 +1528,14 @@ export function App() {
         return;
       }
 
-      inspectedAtomIdRef.current = null;
-      setInspectedAtomId(null);
-      setInspectedKPointIds([]);
-      setPulseAtom(null);
-      setMeasuredAtomIds((currentAtomIds) => {
-        const currentAtomsById = new Map(scene.atoms.map((candidate) => [candidate.id, candidate]));
-        const nextAtomIds = currentAtomIds.filter((currentAtomId) => {
-          const currentAtom = currentAtomsById.get(currentAtomId);
-          return currentAtom && currentAtom.siteId !== atom.siteId;
-        });
+      setPositionSelectedSiteIds((currentSiteIds) => {
+        if (selected) {
+          return currentSiteIds.includes(atom.siteId)
+            ? currentSiteIds
+            : [...currentSiteIds, atom.siteId];
+        }
 
-        return selected ? [...nextAtomIds, atom.id] : nextAtomIds;
+        return currentSiteIds.filter((siteId) => siteId !== atom.siteId);
       });
     },
     [scene],
@@ -1559,7 +1594,7 @@ export function App() {
               return;
             }
 
-            atomPositionBaselineSceneRef.current = rebuiltScene;
+            atomPositionTopologySceneRef.current = rebuiltScene;
             setScene(rebuiltScene);
             if (shouldRestoreOneHop) {
               setComponentVisibility((currentVisibility) => ({
@@ -1585,7 +1620,7 @@ export function App() {
           currentScene,
           siteId,
           fractionalPosition,
-          atomPositionBaselineSceneRef.current ?? currentScene,
+          atomPositionTopologySceneRef.current ?? currentScene,
         );
         scheduleAtomPositionRebuild(nextScene);
         return nextScene;
@@ -1623,7 +1658,7 @@ export function App() {
               currentScene,
               siteIds,
               delta,
-              atomPositionBaselineSceneRef.current ?? currentScene,
+              atomPositionTopologySceneRef.current ?? currentScene,
             );
         if (isWholeStructureTranslation) {
           setChargeDensityDisplay((currentDisplay) =>
@@ -1656,7 +1691,7 @@ export function App() {
       currentScene
         ? restoreAtomPositionsFromScene(
             currentScene,
-            atomPositionBaselineSceneRef.current,
+            atomPositionInitialSceneRef.current,
           )
         : currentScene,
     );
@@ -1753,14 +1788,14 @@ export function App() {
       if (currentSelection.isDragging) {
         const endX = event.clientX;
         const endY = event.clientY;
-        toggleMeasuredAtomIds(
-          selectionSnapshot.atomIdsInClientRect({
-            bottom: Math.max(currentSelection.startY, endY),
-            left: Math.min(currentSelection.startX, endX),
-            right: Math.max(currentSelection.startX, endX),
-            top: Math.min(currentSelection.startY, endY),
-          }),
-        );
+        const atomIds = selectionSnapshot.atomIdsInClientRect({
+          bottom: Math.max(currentSelection.startY, endY),
+          left: Math.min(currentSelection.startX, endX),
+          right: Math.max(currentSelection.startX, endX),
+          top: Math.min(currentSelection.startY, endY),
+        });
+        togglePositionSelectedAtomIds(atomIds);
+        toggleMeasuredAtomIds(atomIds);
         return;
       }
 
@@ -1769,6 +1804,7 @@ export function App() {
         y: event.clientY,
       });
       if (atomId) {
+        togglePositionSelectedAtomIds([atomId]);
         toggleMeasuredAtomIds([atomId]);
       }
     },
@@ -1776,6 +1812,7 @@ export function App() {
       atomBoxSelection,
       handleScenePointerEndCapture,
       toggleMeasuredAtomIds,
+      togglePositionSelectedAtomIds,
     ],
   );
 
@@ -2415,6 +2452,7 @@ export function App() {
                 scene={displayScene}
                 chargeDensityDisplay={chargeDensityDisplay}
                 inspectedAtomId={isBrillouinZoneView ? null : inspectedAtomId}
+                selectedAtomIds={isBrillouinZoneView ? [] : selectedAtomIds}
                 inspectedKPointIds={inspectedKPointIds}
                 measuredAtomIds={isBrillouinZoneView ? [] : measuredAtomIds}
                 pulseAtomId={isBrillouinZoneView ? null : pulseAtom?.atomId ?? null}

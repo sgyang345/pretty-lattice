@@ -1,6 +1,6 @@
 import {
-  ChevronDown,
-  ChevronUp,
+  ArrowDown,
+  ArrowUp,
   RotateCcw,
   Users,
 } from "lucide-react";
@@ -28,6 +28,7 @@ import type { AtomSpec } from "../../../api/scene";
 import {
   allCanonicalAtomSiteIds,
   canonicalAtomsForFractionalCoordinates,
+  formatStructureNumber,
   wrapFractionalCoordinate,
   type FractionalAxis,
 } from "../../../model";
@@ -40,7 +41,7 @@ import {
 
 type AtomPositionTargetMode = "selected" | "all";
 
-const FRACTIONAL_AXIS_LABELS = ["x", "y", "z"] as const;
+const FRACTIONAL_AXIS_LABELS = ["a", "b", "c"] as const;
 const DEFAULT_FRACTIONAL_STEP = 0.01;
 
 export function AtomPositionSection({
@@ -66,6 +67,12 @@ export function AtomPositionSection({
 }) {
   const [targetMode, setTargetMode] = useState<AtomPositionTargetMode>("selected");
   const [stepText, setStepText] = useState(formatFractionalValue(DEFAULT_FRACTIONAL_STEP));
+  const [axisStepTexts, setAxisStepTexts] = useState<[string, string, string]>(() => [
+    formatFractionalValue(DEFAULT_FRACTIONAL_STEP),
+    formatFractionalValue(DEFAULT_FRACTIONAL_STEP),
+    formatFractionalValue(DEFAULT_FRACTIONAL_STEP),
+  ]);
+  const [axisStepsLinked, setAxisStepsLinked] = useState(true);
   const canonicalAtoms = useMemo(
     () => canonicalAtomsForFractionalCoordinates(atoms),
     [atoms],
@@ -91,15 +98,37 @@ export function AtomPositionSection({
     effectiveTargetMode === "selected"
       ? `${selectedCanonicalSiteIds.length} selected`
       : "All atoms";
+  const normalizeStep = (value: number) =>
+    Object.is(value, -0) ? 0 : value;
+
+  function syncAxisSteps(value: string) {
+    setAxisStepTexts([value, value, value]);
+    setAxisStepsLinked(true);
+  }
+
+  function handleStepChange(value: string) {
+    setStepText(value);
+    if (axisStepsLinked) {
+      setAxisStepTexts([value, value, value]);
+    }
+  }
 
   function commitStepText() {
     const parsedStep = parseFractionalInput(stepText);
-    if (parsedStep === null || parsedStep <= 0) {
-      setStepText(formatFractionalValue(DEFAULT_FRACTIONAL_STEP));
+    if (parsedStep === null || parsedStep === 0) {
+      const fallback = formatFractionalValue(DEFAULT_FRACTIONAL_STEP);
+      setStepText(fallback);
+      if (axisStepsLinked) {
+        syncAxisSteps(fallback);
+      }
       return;
     }
 
-    setStepText(formatFractionalValue(Math.min(1, parsedStep)));
+    const nextStep = formatFractionalValue(normalizeStep(parsedStep));
+    setStepText(nextStep);
+    if (axisStepsLinked) {
+      syncAxisSteps(nextStep);
+    }
   }
 
   function handleStepKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -110,7 +139,11 @@ export function AtomPositionSection({
     }
 
     if (event.key === "Escape") {
-      setStepText(formatFractionalValue(DEFAULT_FRACTIONAL_STEP));
+      const fallback = formatFractionalValue(DEFAULT_FRACTIONAL_STEP);
+      setStepText(fallback);
+      if (axisStepsLinked) {
+        syncAxisSteps(fallback);
+      }
       event.currentTarget.blur();
     }
   }
@@ -124,19 +157,87 @@ export function AtomPositionSection({
     event.stopPropagation();
     const currentStep = parseFractionalInput(stepText) ?? DEFAULT_FRACTIONAL_STEP;
     const direction = event.deltaY < 0 ? 1 : -1;
-    const nextStep = Math.min(1, Math.max(0.001, currentStep + direction * 0.001));
-    setStepText(formatFractionalValue(nextStep));
+    const nextStep = currentStep + direction * 0.001;
+    const nextStepText = formatFractionalValue(
+      nextStep === 0 ? DEFAULT_FRACTIONAL_STEP : normalizeStep(nextStep),
+    );
+    setStepText(nextStepText);
+    if (axisStepsLinked) {
+      syncAxisSteps(nextStepText);
+    }
+  }
+
+  function axisStep(axis: FractionalAxis): number {
+    const axisText = axisStepTexts[axis].trim();
+    if (axisStepsLinked) {
+      return parseFractionalInput(stepText) ?? DEFAULT_FRACTIONAL_STEP;
+    }
+
+    return parseFractionalInput(axisText) ?? 0;
   }
 
   function translate(axis: FractionalAxis, direction: -1 | 1) {
-    const step = parseFractionalInput(stepText) ?? DEFAULT_FRACTIONAL_STEP;
-    if (targetSiteIds.length === 0 || step <= 0) {
+    const step = axisStep(axis);
+    if (targetSiteIds.length === 0 || step === 0) {
       return;
     }
 
     const delta: [number, number, number] = [0, 0, 0];
     delta[axis] = direction * step;
     onTranslateFractional(targetSiteIds, delta);
+  }
+
+  function translateAll(direction: -1 | 1) {
+    if (targetSiteIds.length === 0) {
+      return;
+    }
+
+    const steps = [axisStep(0), axisStep(1), axisStep(2)];
+    const delta: [number, number, number] = [
+      direction * steps[0]!,
+      direction * steps[1]!,
+      direction * steps[2]!,
+    ];
+    if (delta.some((value) => value !== 0)) {
+      onTranslateFractional(targetSiteIds, delta);
+    }
+  }
+
+  function updateAxisStep(axis: FractionalAxis, value: string) {
+    setAxisStepsLinked(false);
+    setAxisStepTexts((currentSteps) => {
+      const nextSteps = [...currentSteps] as [string, string, string];
+      nextSteps[axis] = value;
+      return nextSteps;
+    });
+  }
+
+  function commitAxisStep(axis: FractionalAxis) {
+    const value = axisStepTexts[axis].trim();
+    const parsed = parseFractionalInput(value);
+    if (value.length === 0 || parsed === null) {
+      updateAxisStep(axis, "");
+      return;
+    }
+
+    const nextStepText = formatFractionalValue(normalizeStep(parsed));
+    const nextAxisStepTexts = [...axisStepTexts] as [string, string, string];
+    nextAxisStepTexts[axis] = nextStepText;
+    setAxisStepTexts(nextAxisStepTexts);
+
+    const parsedAxisSteps = nextAxisStepTexts.map(parseFractionalInput);
+    const firstStep = parsedAxisSteps[0];
+    const stepsMatch =
+      firstStep !== null &&
+      firstStep !== undefined &&
+      firstStep !== 0 &&
+      parsedAxisSteps.every(
+        (step) => step !== null && Math.abs(step - firstStep) < 1e-16,
+      );
+    setAxisStepsLinked(stepsMatch);
+    if (stepsMatch) {
+      setStepText(nextStepText);
+    }
   }
 
   function handleTargetModeChange(value: string) {
@@ -213,23 +314,32 @@ export function AtomPositionSection({
               inputMode="decimal"
               value={stepText}
               aria-label="Fractional translation step"
+              disabled={!axisStepsLinked}
               className="h-7 px-1.5 text-center font-mono text-[0.68rem] tabular-nums"
               onBlur={commitStepText}
-              onChange={(event) => setStepText(event.target.value)}
+              onChange={(event) => handleStepChange(event.target.value)}
               onKeyDown={handleStepKeyDown}
               onWheel={handleStepWheel}
             />
           </label>
         </div>
 
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-[3.25rem_repeat(3,minmax(0,1fr))] items-end gap-1.5">
+          <TotalTranslateStepper
+            disabled={targetSiteIds.length === 0}
+            onDecrease={() => translateAll(-1)}
+            onIncrease={() => translateAll(1)}
+          />
           {FRACTIONAL_AXIS_LABELS.map((axisLabel, axisIndex) => (
             <AxisTranslateStepper
               key={axisLabel}
               axisLabel={axisLabel}
+              stepText={axisStepTexts[axisIndex] ?? ""}
               disabled={targetSiteIds.length === 0}
               onDecrease={() => translate(axisIndex as FractionalAxis, -1)}
               onIncrease={() => translate(axisIndex as FractionalAxis, 1)}
+              onStepBlur={() => commitAxisStep(axisIndex as FractionalAxis)}
+              onStepChange={(value) => updateAxisStep(axisIndex as FractionalAxis, value)}
             />
           ))}
         </div>
@@ -318,11 +428,17 @@ function AxisTranslateStepper({
   disabled,
   onDecrease,
   onIncrease,
+  onStepBlur,
+  onStepChange,
+  stepText,
 }: {
   axisLabel: string;
   disabled: boolean;
   onDecrease: () => void;
   onIncrease: () => void;
+  onStepBlur: () => void;
+  onStepChange: (value: string) => void;
+  stepText: string;
 }) {
   function handleWheel(event: WheelEvent<HTMLDivElement>) {
     if (event.deltaY === 0) {
@@ -346,11 +462,30 @@ function AxisTranslateStepper({
     <div
       aria-label={`Adjust fractional ${axisLabel}`}
       className={cn(
-        "mx-auto grid h-12 w-12 grid-rows-[1fr_0.8rem_1fr] items-center overflow-hidden rounded-md border border-input bg-background",
+        "grid min-w-0 grid-rows-[1.5rem_1fr_0.8rem_1fr] items-center overflow-hidden rounded-md border border-input bg-background",
         disabled ? "opacity-50" : null,
       )}
       onWheel={handleWheel}
     >
+      <Input
+        type="text"
+        inputMode="decimal"
+        value={stepText}
+        placeholder={formatFractionalValue(DEFAULT_FRACTIONAL_STEP)}
+        aria-label={`${axisLabel} translation step`}
+        className="h-6 min-w-0 rounded-none border-0 border-b px-1 text-center font-mono text-[0.58rem] tabular-nums shadow-none"
+        onBlur={onStepBlur}
+        onChange={(event) => onStepChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          }
+        }}
+        onWheel={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      />
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -359,15 +494,15 @@ function AxisTranslateStepper({
             size="icon"
             aria-label={`Increase fractional ${axisLabel}`}
             disabled={disabled}
-            className="h-full w-full rounded-none border-0 [&_svg]:size-3"
+            className="flex h-full w-full items-center justify-center rounded-none border-0 [&_svg]:size-3"
             onClick={onIncrease}
           >
-            <ChevronUp aria-hidden="true" />
+            <ArrowUp aria-hidden="true" />
           </Button>
         </TooltipTrigger>
         <TooltipContent side="top">Increase fractional {axisLabel}</TooltipContent>
       </Tooltip>
-      <span className="text-center font-mono text-[0.58rem] font-semibold uppercase leading-none text-muted-foreground">
+      <span className="flex items-center justify-center text-center font-mono text-[0.58rem] font-semibold uppercase leading-none text-muted-foreground">
         {axisLabel}
       </span>
       <Tooltip>
@@ -378,13 +513,69 @@ function AxisTranslateStepper({
             size="icon"
             aria-label={`Decrease fractional ${axisLabel}`}
             disabled={disabled}
-            className="h-full w-full rounded-none border-0 [&_svg]:size-3"
+            className="flex h-full w-full items-center justify-center rounded-none border-0 [&_svg]:size-3"
             onClick={onDecrease}
           >
-            <ChevronDown aria-hidden="true" />
+            <ArrowDown aria-hidden="true" />
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom">Decrease fractional {axisLabel}</TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
+function TotalTranslateStepper({
+  disabled,
+  onDecrease,
+  onIncrease,
+}: {
+  disabled: boolean;
+  onDecrease: () => void;
+  onIncrease: () => void;
+}) {
+  return (
+    <div
+      aria-label="Adjust fractional a, b, c"
+      className={cn(
+        "grid h-full min-w-0 grid-rows-[1fr_0.8rem_1fr] items-center overflow-hidden rounded-md border border-input bg-background",
+        disabled ? "opacity-50" : null,
+      )}
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Increase fractional a, b, c"
+            disabled={disabled}
+            className="flex h-full w-full items-center justify-center rounded-none border-0 [&_svg]:size-3"
+            onClick={onIncrease}
+          >
+            <ArrowUp aria-hidden="true" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="top">Increase fractional a, b, c</TooltipContent>
+      </Tooltip>
+      <span className="flex items-center justify-center text-center font-mono text-[0.55rem] font-semibold uppercase leading-none text-muted-foreground">
+        all
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Decrease fractional a, b, c"
+            disabled={disabled}
+            className="flex h-full w-full items-center justify-center rounded-none border-0 [&_svg]:size-3"
+            onClick={onDecrease}
+          >
+            <ArrowDown aria-hidden="true" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Decrease fractional a, b, c</TooltipContent>
       </Tooltip>
     </div>
   );
@@ -468,11 +659,27 @@ function FractionalCoordinateInput({
 }
 
 function parseFractionalInput(value: string): number | null {
-  const numericValue = Number(value.trim());
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    return null;
+  }
+
+  const fractionMatch = normalizedValue.match(/^([+-]?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+  if (fractionMatch) {
+    const numerator = Number(fractionMatch[1]);
+    const denominator = Number(fractionMatch[2]);
+    if (denominator === 0) {
+      return null;
+    }
+
+    const fractionValue = numerator / denominator;
+    return Number.isFinite(fractionValue) ? fractionValue : null;
+  }
+
+  const numericValue = Number(normalizedValue);
   return Number.isFinite(numericValue) ? numericValue : null;
 }
 
 function formatFractionalValue(value: number): string {
-  const normalizedValue = Math.abs(value) < 0.0000005 || Object.is(value, -0) ? 0 : value;
-  return normalizedValue.toFixed(4);
+  return formatStructureNumber(value);
 }

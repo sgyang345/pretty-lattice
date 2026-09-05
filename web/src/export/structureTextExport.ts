@@ -1,6 +1,10 @@
 import type { AtomSpec, SceneSpec } from "../api/scene";
 import type { ComponentVisibilityState } from "../model";
-import { supercellSceneForDisplay } from "../model";
+import {
+  formatStructureNumber,
+  STRUCTURE_ZERO_TOLERANCE,
+  supercellSceneForDisplay,
+} from "../model";
 import { exportFileStem } from "./fileNames";
 
 export type StructureTextExportFormat = "vasp" | "cif" | "abacus-stru";
@@ -226,11 +230,13 @@ function vectorAngle(
 function wrapFractionalTuple(tuple: [number, number, number]): [number, number, number] {
   return tuple.map((value) => {
     const wrapped = value - Math.floor(value);
-    return Math.abs(wrapped - 1) < 1e-10 || Math.abs(wrapped) < 1e-10 ? 0 : wrapped;
+    return Math.abs(wrapped - 1) < STRUCTURE_ZERO_TOLERANCE ||
+      Math.abs(wrapped) < STRUCTURE_ZERO_TOLERANCE
+      ? 0
+      : wrapped;
   }) as [number, number, number];
 }
 
 function formatFloat(value: number): string {
-  const normalized = Math.abs(value) < 1e-12 ? 0 : value;
-  return normalized.toFixed(12).replace(/\.?0+$/, "");
+  return formatStructureNumber(value);
 }

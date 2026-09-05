@@ -25,6 +25,48 @@ describe("atom fractional position editing", () => {
     expect(nextScene.atoms[2]).toBe(scene.atoms[2]);
   });
 
+  test("preserves movement at the sixteenth fractional decimal place", () => {
+    const scene = sceneWithPeriodicImage();
+
+    const nextScene = translateAtomSitesFractional(
+      scene,
+      ["Si-1"],
+      [0.0000000000000001, 0, 0],
+    );
+
+    expect(nextScene).not.toBe(scene);
+    expect(nextScene.atoms[0]!.fractionalPosition[0]).toBe(0.9000000000000001);
+  });
+
+  test("translates multiple selected sites while leaving unselected sites unchanged", () => {
+    const scene = {
+      ...sceneWithPeriodicImage(),
+      atoms: [
+        ...sceneWithPeriodicImage().atoms,
+        atom({
+          id: "C-2",
+          siteId: "C-2",
+          element: "C",
+          siteIndex: 2,
+          fractionalPosition: [0.2, 0.2, 0.2],
+          imageOffset: [0, 0, 0],
+        }),
+      ],
+    };
+    const untouched = scene.atoms[3]!;
+
+    const nextScene = translateAtomSitesFractional(
+      scene,
+      ["Si-1", "O-1"],
+      [0.1, 0.2, -0.1],
+    );
+
+    expectTupleClose(nextScene.atoms[0]!.fractionalPosition, [0, 0.4, 0.2]);
+    expectTupleClose(nextScene.atoms[1]!.fractionalPosition, [1, 0.4, -0.8]);
+    expectTupleClose(nextScene.atoms[2]!.fractionalPosition, [0.5, 0.7, 0.5]);
+    expect(nextScene.atoms[3]).toBe(untouched);
+  });
+
   test("sets one canonical fractional coordinate and keeps periodic image offsets", () => {
     const scene = sceneWithPeriodicImage();
 

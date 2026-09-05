@@ -263,9 +263,9 @@ def test_scene_response_shape_excludes_renderer_visual_data() -> None:
         "formula": "SrTiO3",
         "atomCount": 5,
         "cell": {
-            "a": "3.91",
-            "b": "3.91",
-            "c": "3.91",
+            "a": "3.91270131",
+            "b": "3.91270131",
+            "c": "3.91270131",
             "alpha": "90.0",
             "beta": "90.0",
             "gamma": "90.0",
@@ -726,6 +726,32 @@ def test_scene_summary_marks_non_periodic_symmetry_unavailable() -> None:
         "pointGroupSchoenflies": None,
         "crystalSystem": None,
         "latticeSystem": None,
+    }
+
+
+def test_structure_summary_preserves_sixteen_decimal_places() -> None:
+    structure = Structure(
+        Lattice.from_parameters(
+            3.1234567890123456,
+            4.234567890123456,
+            5.345678901234567,
+            80.12345678901234,
+            95.23456789012345,
+            100.34567890123456,
+        ),
+        ["Si"],
+        [[0.1234567890123456, 0.2345678901234567, 0.3456789012345678]],
+    )
+
+    summary = summary_module.build_structure_summary(structure)
+
+    assert summary["cell"] == {
+        "a": "3.1234567890123457",
+        "b": "4.234567890123456",
+        "c": "5.345678901234567",
+        "alpha": "80.12345678901234",
+        "beta": "95.23456789012344",
+        "gamma": "100.34567890123458",
     }
 
 

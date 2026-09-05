@@ -5,6 +5,7 @@ import type {
   SceneSpec,
   VisibilityDependency,
 } from "../api/scene";
+import { STRUCTURE_ZERO_TOLERANCE } from "./structurePrecision";
 import {
   createDefaultAtomLabelSettings,
   type AtomLabelSettings,
@@ -400,7 +401,7 @@ function wrapFractionalCoordinate(value: number): number {
   }
 
   const wrapped = value - Math.floor(value);
-  return wrapped >= 1 - 1e-10 ? 0 : wrapped;
+  return 1 - wrapped < STRUCTURE_ZERO_TOLERANCE ? 0 : wrapped;
 }
 
 export function normalizeChargeDensitySectionAxis(value: unknown): ChargeDensitySectionAxis {

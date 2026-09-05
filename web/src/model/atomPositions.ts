@@ -1,4 +1,5 @@
 import type { AtomSpec, BondSpec, SceneSpec, VisibilityDependency } from "../api/scene";
+import { STRUCTURE_ZERO_TOLERANCE } from "./structurePrecision";
 
 export type FractionalAxis = 0 | 1 | 2;
 
@@ -87,7 +88,7 @@ export function wrapFractionalCoordinate(value: number): number {
   }
 
   const wrapped = value - Math.floor(value);
-  return wrapped >= 1 - 1e-10 ? 0 : wrapped;
+  return 1 - wrapped < STRUCTURE_ZERO_TOLERANCE ? 0 : wrapped;
 }
 
 function updateAtomSitesFractional(
@@ -807,5 +808,5 @@ function wrapFractionalTuple(
 }
 
 function tupleNearZero(tuple: [number, number, number]): boolean {
-  return tuple.every((value) => Math.abs(value) < 1e-12);
+  return tuple.every((value) => Math.abs(value) < STRUCTURE_ZERO_TOLERANCE);
 }

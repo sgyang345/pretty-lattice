@@ -6,11 +6,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 
 import type { BrillouinSelectablePoint } from "../scene/brillouinSelection";
+import { formatStructureNumber } from "../model/structurePrecision";
 import { GLASS_SURFACE_CLASS, TOOL_ICON_BUTTON_CLASS } from "./surface";
 
-const FRACTIONAL_DIGITS = 10;
 const K_POINT_LABEL_WIDTH = 3;
-const K_POINT_COORDINATE_WIDTH = 13;
+const K_POINT_COORDINATE_WIDTH = 19;
 
 export function KPointInspectorCard({
   infos,
@@ -29,7 +29,7 @@ export function KPointInspectorCard({
     <aside
       aria-label="Selected k-points"
       className={cn(
-        "absolute bottom-4 left-16 z-30 max-h-[min(50vh,22rem)] w-fit max-w-[min(460px,calc(100vw-2rem))] overflow-y-auto rounded-xl border px-2.5 py-2 font-mono text-xs shadow-xl shadow-foreground/10",
+        "absolute bottom-4 left-16 z-30 max-h-[min(50vh,22rem)] w-fit max-w-[min(650px,calc(100vw-2rem))] overflow-auto rounded-xl border px-2.5 py-2 font-mono text-xs shadow-xl shadow-foreground/10",
         "transition-[left] duration-[260ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
         "max-[760px]:bottom-4 max-[760px]:left-4",
         isInspectorOpen ? "min-[761px]:left-[376px]" : null,
@@ -64,7 +64,7 @@ export function KPointInspectorCard({
             const copyText = coordinates.join(" ");
             return (
               <div
-                className="grid h-6 grid-cols-[3ch_13ch_13ch_13ch_1.5rem] items-center gap-x-[1ch]"
+                className="grid h-6 grid-cols-[3ch_19ch_19ch_19ch_1.5rem] items-center gap-x-[1ch]"
                 key={info.id}
               >
                 <span className="min-w-0 whitespace-pre text-left text-[0.75rem] font-semibold text-foreground">
@@ -103,14 +103,13 @@ export function KPointInspectorCard({
 }
 
 function formatKPointCoordinate(values: [number, number, number]): [string, string, string] {
-  return values.map((value) => formatFixedCoordinate(value, FRACTIONAL_DIGITS)) as [string, string, string];
+  return values.map(formatFixedCoordinate) as [string, string, string];
 }
 
 function formatKPointLabel(label: string): string {
   return label.slice(0, K_POINT_LABEL_WIDTH).padEnd(K_POINT_LABEL_WIDTH, " ");
 }
 
-function formatFixedCoordinate(value: number, digits: number): string {
-  const normalizedValue = Object.is(value, -0) || Math.abs(value) < 10 ** -digits ? 0 : value;
-  return normalizedValue.toFixed(digits).padStart(K_POINT_COORDINATE_WIDTH, " ");
+function formatFixedCoordinate(value: number): string {
+  return formatStructureNumber(value).padStart(K_POINT_COORDINATE_WIDTH, " ");
 }

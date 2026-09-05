@@ -9,5 +9,6 @@ export * from "./layout";
 export * from "./projectFile";
 export * from "./rendering";
 export * from "./structureLimits";
+export * from "./structurePrecision";
 export * from "./vector";
 export * from "./viewState";

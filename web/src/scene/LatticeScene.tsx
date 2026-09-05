@@ -123,6 +123,7 @@ export function LatticeScene({
   onCameraOrientationFrame,
   onCameraOrientationChange,
   onAtomInspect,
+  selectedAtomIds = [],
   onKPointInspect,
   onAtomBoxSelectionSnapshotChange,
   onAtomMeasure,
@@ -169,6 +170,7 @@ export function LatticeScene({
   onCameraOrientationFrame?: () => void;
   onCameraOrientationChange?: () => void;
   onAtomInspect?: (atomId: string | null) => void;
+  selectedAtomIds?: string[];
   onKPointInspect?: (kpointId: string | null) => void;
   onAtomBoxSelectionSnapshotChange?: (snapshot: AtomBoxSelectionSnapshot | null) => void;
   onAtomMeasure?: (atomId: string) => void;
@@ -286,6 +288,7 @@ export function LatticeScene({
         meshDetail={EXPORT_SCENE_MESH_DETAIL_PRESETS[previewMeshQuality]}
         scene={scene}
         inspectedAtomId={inspectedAtomId}
+        selectedAtomIds={selectedAtomIds}
         inspectedKPointIds={inspectedKPointIds}
         measuredAtomIds={measuredAtomIds}
         interactionLocked={interactionLocked}

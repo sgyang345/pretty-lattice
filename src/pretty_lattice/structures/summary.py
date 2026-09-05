@@ -12,6 +12,8 @@ from pretty_lattice.structures.schema import (
 )
 from pretty_lattice.structures.symmetry import point_group_schoenflies_symbol
 
+STRUCTURE_DECIMAL_PLACES = 16
+
 
 def build_structure_summary(structure: Structure) -> StructureSummarySpec:
     a, b, c = (float(value) for value in structure.lattice.abc)
@@ -87,14 +89,15 @@ def _unavailable_symmetry_summary() -> SymmetrySummarySpec:
 
 
 def _format_length(value: float) -> str:
-    return _format_number(value, precision=2)
+    return _format_number(value)
 
 
 def _format_angle(value: float) -> str:
-    return _format_number(value, precision=1)
+    return _format_number(value)
 
 
-def _format_number(value: float, *, precision: int) -> str:
+def _format_number(value: float) -> str:
     if not math.isfinite(value):
         return "-"
-    return f"{value:.{precision}f}"
+    rounded_value = round(value, STRUCTURE_DECIMAL_PLACES)
+    return "0" if rounded_value == 0 else str(rounded_value)

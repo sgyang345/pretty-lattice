@@ -132,7 +132,7 @@ export function CellMetric({
   return (
     <div className="flex min-w-0 items-baseline gap-2">
       <dt className="shrink-0 text-[0.78rem] font-semibold text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 truncate tabular-nums">
+      <dd className="min-w-0 truncate tabular-nums" title={`${value}${unit}`}>
         {value}
         {unit === "Å" ? "\u2009" : ""}
         {unit}
